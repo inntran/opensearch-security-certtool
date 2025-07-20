@@ -1,0 +1,64 @@
+# OpenSearch Security Certificate Tool Configuration
+# Example configuration file for generating certificates
+
+# Certificate Authority configuration
+ca:
+  root:
+    # The distinguished name of the root CA
+    dn: CN=root.ca.example.com,OU=CA,O=Example Com\, Inc.,DC=example,DC=com
+    # Key size in bits
+    keysize: 2048
+    # Validity period in days
+    validityDays: 3650
+    # Password for private key (auto = generate random password, none = unencrypted)
+    pkPassword: auto
+    # Output filename (without extension)
+    file: root-ca
+
+  # Optional intermediate CA
+  intermediate:
+    dn: CN=signing.ca.example.com,OU=CA,O=Example Com\, Inc.,DC=example,DC=com
+    keysize: 2048
+    validityDays: 3650
+    pkPassword: auto
+
+# Default values applied to all certificates
+defaults:
+  validityDays: 3650
+  pkPassword: auto
+  generatedPasswordLength: 12
+  httpsEnabled: true
+  reuseTransportCertificatesForHttp: false
+  verifyHostnames: false
+  resolveHostnames: false
+
+# Node certificates for OpenSearch cluster
+nodes:
+  - name: node1
+    dn: CN=node1.example.com,OU=Ops,O=Example Com\, Inc.,DC=example,DC=com
+    dns: node1.example.com
+    ip: 10.0.2.1
+
+  - name: node2
+    dn: CN=node2.example.com,OU=Ops,O=Example Com\, Inc.,DC=example,DC=com
+    dns: 
+      - node2.example.com
+      - es2.example.com
+    ip: 
+      - 10.0.2.2
+      - 192.168.2.2
+
+  - name: node3
+    dn: CN=node3.example.com,OU=Ops,O=Example Com\, Inc.,DC=example,DC=com
+    dns: node3.example.com
+    ip: 10.0.2.3
+
+# Client certificates for authentication
+clients:
+  - name: admin
+    dn: CN=admin.example.com,OU=Ops,O=Example Com\, Inc.,DC=example,DC=com
+    admin: true
+
+  - name: client
+    dn: CN=client.example.com,OU=Ops,O=Example Com\, Inc.,DC=example,DC=com
+    admin: false

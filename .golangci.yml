@@ -1,0 +1,102 @@
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  
+  govet:
+    check-shadowing: true
+    enable-all: true
+  
+  misspell:
+    locale: US
+  
+  lll:
+    line-length: 120
+  
+  gofmt:
+    simplify: true
+  
+  goimports:
+    local-prefixes: github.com/inntran/opensearch-security-certtool
+  
+  gosec:
+    severity: medium
+    confidence: medium
+    excludes:
+      - G404 # Use of weak random number generator - we use crypto/rand where needed
+  
+  revive:
+    rules:
+      - name: exported
+        arguments: [checkPrivateReceivers, sayRepetitiveInsteadOfStutters]
+  
+  staticcheck:
+    checks: ["all"]
+
+linters:
+  enable:
+    - gocyclo
+    - govet
+    - misspell
+    - lll
+    - gofmt
+    - goimports
+    - gosec
+    - errcheck
+    - staticcheck
+    - unused
+    - ineffassign
+    - unconvert
+    - revive
+    - gocritic
+    - gci
+    - godox
+    - gofumpt
+    - goheader
+    - gomodguard
+    - goprintffuncname
+    - gosimple
+    - goconst
+    - bodyclose
+    - contextcheck
+    - durationcheck
+    - exportloopref
+    - nilerr
+    - nolintlint
+    - predeclared
+    - stylecheck
+    - typecheck
+  
+  disable:
+    - deadcode  # deprecated
+    - varcheck  # deprecated
+    - structcheck # deprecated
+    - ifshort   # deprecated
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - gosec
+        - goconst
+    
+    # Exclude specific gosec rules for crypto operations
+    - path: internal/cert/
+      linters:
+        - gosec
+      text: "G401|G501" # Allow MD5 and SHA1 for non-cryptographic purposes
+    
+    # Exclude line length for long test names
+    - path: _test\.go
+      linters:
+        - lll
+      source: "func Test"
+
+  max-issues-per-linter: 0
+  max-same-issues: 0
