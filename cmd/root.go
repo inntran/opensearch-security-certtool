@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/inntran/opensearch-security-certtool/internal/config"
 	"github.com/inntran/opensearch-security-certtool/internal/cert"
+	"github.com/inntran/opensearch-security-certtool/internal/logger"
 )
 
 var (
@@ -17,6 +18,7 @@ var (
 	
 	cfg *config.Config
 	certManager *cert.CertificateManager
+	log *logger.Logger
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -58,32 +60,7 @@ Example usage:
 		if err := cfg.Validate(); err != nil {
 			return fmt.Errorf("config validation failed: %w", err)
 		}
-		
-		// Initialize certificate manager
-		certManager = cert.NewCertificateManager(outputDir)
-		
-		if verbose {
-			fmt.Printf("Loaded config from: %s\n", cfgFile)
-			fmt.Printf("Output directory: %s\n", outputDir)
-		}
-		
-		return nil
-	},
-}
-
-// Execute adds all child commands to the root command and sets flags appropriately.
-func Execute() error {
-	return rootCmd.Execute()
-}
-
-func init() {
-	// Global flags
-	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "Path to the config file (required)")
-	rootCmd.PersistentFlags().StringVarP(&outputDir, "target", "t", "out", "Path to the target directory")
-	rootCmd.PersistentFlags().BoolVarP(&overwrite, "overwrite", "o", false, "Overwrite existing files")
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable detailed output")
-	rootCmd.PersistentFlags().BoolVarP(&force, "force", "f", false, "Force certificate generation despite validation errors")
+	// Initialize logger
+	log = logger.New(verbose)
 	
-	// Mark config as required
-	rootCmd.MarkPersistentFlagRequired("config")
 }
