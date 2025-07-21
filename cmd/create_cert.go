@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/inntran/opensearch-security-certtool/internal/cert"
+	"github.com/inntran/opensearch-security-certtool/internal/config"
 )
 
 // createCertCmd represents the create-cert command
@@ -19,6 +22,12 @@ This command will generate certificates for all nodes and clients defined in the
 Node certificates include Subject Alternative Names (SANs) for DNS names and IP addresses.
 Client certificates are configured for client authentication.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		return createCertCommand()
+	},
+}
+
+// createCertCommand implements the certificate creation logic
+func createCertCommand() error {
 		fmt.Println("Creating certificates...")
 		
 		// Create output directory if it doesn't exist
@@ -50,6 +59,7 @@ Client certificates are configured for client authentication.`,
 				cfg.CA.Root.KeySize,
 				cfg.CA.Root.ValidityDays,
 				caFile,
+				cfg.CA.Root.PKPassword,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to create CA: %w", err)
@@ -61,7 +71,13 @@ Client certificates are configured for client authentication.`,
 				fmt.Printf("Loading existing CA from: %s\n", caPath)
 			}
 			
-			rootCA, err = loadCA(caPath, keyPath)
+			// Resolve auto-generated password if needed
+			resolvedPassword, err := resolveCAPassword(outputDir, "root", cfg.CA.Root.PKPassword)
+			if err != nil {
+				return fmt.Errorf("failed to resolve root CA password: %w", err)
+			}
+			
+			rootCA, err = loadCA(caPath, keyPath, resolvedPassword)
 			if err != nil {
 				return fmt.Errorf("failed to load CA: %w", err)
 			}
@@ -83,6 +99,7 @@ Client certificates are configured for client authentication.`,
 					cfg.CA.Intermediate.KeySize,
 					cfg.CA.Intermediate.ValidityDays,
 					"signing-ca",
+					cfg.CA.Intermediate.PKPassword,
 				)
 				if err != nil {
 					return fmt.Errorf("failed to create intermediate CA: %w", err)
@@ -95,7 +112,13 @@ Client certificates are configured for client authentication.`,
 					fmt.Printf("Loading existing intermediate CA from: %s\n", intermediatePath)
 				}
 				
-				rootCA, err = loadCA(intermediatePath, intermediateKeyPath)
+				// Resolve auto-generated password if needed
+				resolvedIntermediatePassword, err := resolveCAPassword(outputDir, "intermediate", cfg.CA.Intermediate.PKPassword)
+				if err != nil {
+					return fmt.Errorf("failed to resolve intermediate CA password: %w", err)
+				}
+				
+				rootCA, err = loadCA(intermediatePath, intermediateKeyPath, resolvedIntermediatePassword)
 				if err != nil {
 					return fmt.Errorf("failed to load intermediate CA: %w", err)
 				}
@@ -111,13 +134,15 @@ Client certificates are configured for client authentication.`,
 			dnsNames := node.GetDNSNames()
 			ipAddresses := node.GetIPAddresses()
 			
-			err := certManager.GenerateNodeCertificate(
+			err := certManager.GenerateNodeCertificateWithOID(
 				rootCA,
 				node.DN,
 				dnsNames,
 				ipAddresses,
 				cfg.Defaults.ValidityDays,
 				node.Name,
+				cfg.Defaults.PKPassword,
+				cfg.Defaults.NodeOID,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to create certificate for node %s: %w", node.Name, err)
@@ -128,13 +153,15 @@ Client certificates are configured for client authentication.`,
 			// Generate HTTP certificate if enabled
 			if cfg.Defaults.HTTPSEnabled && !cfg.Defaults.ReuseTransportCertificates {
 				httpName := node.Name + "_http"
-				err := certManager.GenerateNodeCertificate(
+				err := certManager.GenerateNodeCertificateWithOID(
 					rootCA,
 					node.DN,
 					dnsNames,
 					ipAddresses,
 					cfg.Defaults.ValidityDays,
 					httpName,
+					cfg.Defaults.PKPassword,
+					cfg.Defaults.NodeOID,
 				)
 				if err != nil {
 					return fmt.Errorf("failed to create HTTP certificate for node %s: %w", node.Name, err)
@@ -154,6 +181,7 @@ Client certificates are configured for client authentication.`,
 				client.DN,
 				cfg.Defaults.ValidityDays,
 				client.Name,
+				cfg.Defaults.PKPassword,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to create certificate for client %s: %w", client.Name, err)
@@ -166,17 +194,35 @@ Client certificates are configured for client authentication.`,
 			fmt.Printf("✓ %s certificate created: %s\n", clientType, client.Name)
 		}
 		
+		// Generate OpenSearch configuration snippets
+		if verbose {
+			fmt.Println("Generating OpenSearch configuration snippets...")
+		}
+		
+		configGen := config.NewConfigGenerator(cfg, outputDir)
+		if err := configGen.GenerateNodeConfigs(certManager.GetPasswords()); err != nil {
+			return fmt.Errorf("failed to generate OpenSearch configurations: %w", err)
+		}
+		
+		if err := configGen.GenerateClientReadme(certManager.GetPasswords()); err != nil {
+			return fmt.Errorf("failed to generate client documentation: %w", err)
+		}
+		
+		if err := configGen.GenerateCAReadme(certManager.GetPasswords()); err != nil {
+			return fmt.Errorf("failed to generate CA documentation: %w", err)
+		}
+		
+		fmt.Println("✓ OpenSearch configuration snippets generated")
 		fmt.Println("Certificate creation completed successfully!")
 		return nil
-	},
 }
 
 func init() {
-	rootCmd.AddCommand(createCertCmd)
+	// No longer registering as subcommand - using flags instead
 }
 
-// loadCA loads an existing CA certificate and private key
-func loadCA(certPath, keyPath string) (*cert.CAInfo, error) {
+// loadCA loads an existing CA certificate and private key with optional password
+func loadCA(certPath, keyPath, password string) (*cert.CAInfo, error) {
 	// Read certificate file
 	certPEM, err := os.ReadFile(certPath)
 	if err != nil {
@@ -189,5 +235,63 @@ func loadCA(certPath, keyPath string) (*cert.CAInfo, error) {
 		return nil, fmt.Errorf("failed to read private key file: %w", err)
 	}
 	
-	return cert.LoadCAFromPEM(certPEM, keyPEM)
+	return cert.LoadCAFromPEMWithPassword(certPEM, keyPEM, password)
+}
+
+// resolveCAPassword resolves auto-generated passwords from README files
+func resolveCAPassword(outputDir, caType, configPassword string) (string, error) {
+	if configPassword != "auto" {
+		return configPassword, nil
+	}
+	
+	// Read the actual password from README file
+	readmeFile := filepath.Join(outputDir, "root-ca.readme")
+	content, err := os.ReadFile(readmeFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to read CA readme file %s: %w", readmeFile, err)
+	}
+	
+	return parsePasswordFromReadme(string(content), caType)
+}
+
+// parsePasswordFromReadme extracts password from the CA readme file content
+func parsePasswordFromReadme(content, caType string) (string, error) {
+	lines := strings.Split(content, "\n")
+	
+	// Look for the password section based on CA type
+	var targetSection string
+	switch caType {
+	case "root":
+		targetSection = "root:"
+	case "intermediate":
+		targetSection = "intermediate:"
+	default:
+		return "", fmt.Errorf("unknown CA type: %s", caType)
+	}
+	
+	inTargetSection := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		
+		if strings.Contains(line, targetSection) {
+			inTargetSection = true
+			continue
+		}
+		
+		if inTargetSection && strings.Contains(line, "pkPassword:") {
+			// Extract password using regex
+			re := regexp.MustCompile(`pkPassword:\s*(.+)`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				return strings.TrimSpace(matches[1]), nil
+			}
+		}
+		
+		// Stop if we hit another section
+		if inTargetSection && strings.HasSuffix(line, ":") && line != targetSection {
+			break
+		}
+	}
+	
+	return "", fmt.Errorf("password not found for %s CA in readme file", caType)
 }

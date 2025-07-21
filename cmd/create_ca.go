@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/inntran/opensearch-security-certtool/internal/cert"
+	"github.com/inntran/opensearch-security-certtool/internal/config"
 )
 
 // createCACmd represents the create-ca command
@@ -18,6 +19,12 @@ This can include both root CA and intermediate CA if configured.
 
 The CA certificates and keys will be saved to the target directory.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		return createCACommand()
+	},
+}
+
+// createCACommand implements the CA creation logic
+func createCACommand() error {
 		fmt.Println("Creating Certificate Authority...")
 		
 		// Create output directory if it doesn't exist
@@ -41,11 +48,13 @@ The CA certificates and keys will be saved to the target directory.`,
 			// Remove .pem extension if present as it will be added automatically
 			filename = removeExtension(filename, ".pem")
 			
-			rootCA, err = certManager.GenerateCA(
+			rootCA, err = certManager.GenerateCAWithConfig(
 				cfg.CA.Root.DN,
 				cfg.CA.Root.KeySize,
 				cfg.CA.Root.ValidityDays,
 				filename,
+				cfg.CA.Root.PKPassword,
+				cfg.CA.Root.CRLDistributionPoints,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to create root CA: %w", err)
@@ -67,11 +76,13 @@ The CA certificates and keys will be saved to the target directory.`,
 			filename := "signing-ca"
 			
 			// For intermediate CA, we need to sign it with the root CA
-			intermediateCA, err := certManager.GenerateCA(
+			intermediateCA, err := certManager.GenerateCAWithConfig(
 				cfg.CA.Intermediate.DN,
 				cfg.CA.Intermediate.KeySize,
 				cfg.CA.Intermediate.ValidityDays,
 				filename,
+				cfg.CA.Intermediate.PKPassword,
+				cfg.CA.Intermediate.CRLDistributionPoints,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to create intermediate CA: %w", err)
@@ -83,13 +94,18 @@ The CA certificates and keys will be saved to the target directory.`,
 			rootCA = intermediateCA
 		}
 		
+		// Generate CA documentation
+		configGen := config.NewConfigGenerator(cfg, outputDir)
+		if err := configGen.GenerateCAReadme(certManager.GetPasswords()); err != nil {
+			return fmt.Errorf("failed to generate CA documentation: %w", err)
+		}
+		
 		fmt.Println("Certificate Authority creation completed successfully!")
 		return nil
-	},
 }
 
 func init() {
-	rootCmd.AddCommand(createCACmd)
+	// No longer registering as subcommand - using flags instead
 }
 
 // removeExtension removes the specified extension from filename if present
