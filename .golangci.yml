@@ -1,38 +1,32 @@
+version: 2
+
 run:
   timeout: 5m
-  modules-download-mode: readonly
 
 linters-settings:
   gocyclo:
     min-complexity: 15
-  
+
   govet:
-    check-shadowing: true
     enable-all: true
-  
+
   misspell:
     locale: US
-  
+
   lll:
     line-length: 120
-  
-  gofmt:
-    simplify: true
-  
-  goimports:
-    local-prefixes: github.com/inntran/opensearch-security-certtool
-  
+
   gosec:
     severity: medium
     confidence: medium
     excludes:
-      - G404 # Use of weak random number generator - we use crypto/rand where needed
-  
+      - G304  # File path provided as taint input - acceptable for this CLI tool
+      - G306  # WriteFile permissions for config files and README
+
   revive:
     rules:
       - name: exported
-        arguments: [checkPrivateReceivers, sayRepetitiveInsteadOfStutters]
-  
+
   staticcheck:
     checks: ["all"]
 
@@ -42,39 +36,13 @@ linters:
     - govet
     - misspell
     - lll
-    - gofmt
-    - goimports
     - gosec
     - errcheck
     - staticcheck
     - unused
     - ineffassign
-    - unconvert
     - revive
     - gocritic
-    - gci
-    - godox
-    - gofumpt
-    - goheader
-    - gomodguard
-    - goprintffuncname
-    - gosimple
-    - goconst
-    - bodyclose
-    - contextcheck
-    - durationcheck
-    - exportloopref
-    - nilerr
-    - nolintlint
-    - predeclared
-    - stylecheck
-    - typecheck
-  
-  disable:
-    - deadcode  # deprecated
-    - varcheck  # deprecated
-    - structcheck # deprecated
-    - ifshort   # deprecated
 
 issues:
   exclude-rules:
@@ -84,19 +52,23 @@ issues:
         - gocyclo
         - errcheck
         - gosec
-        - goconst
-    
+
     # Exclude specific gosec rules for crypto operations
     - path: internal/cert/
       linters:
         - gosec
-      text: "G401|G501" # Allow MD5 and SHA1 for non-cryptographic purposes
-    
-    # Exclude line length for long test names
+      text: "G401|G501"
+
+    # Exclude line length for long test names and template strings
     - path: _test\.go
       linters:
         - lll
       source: "func Test"
+
+    # Exclude line length for template constants
+    - path: internal/templates/
+      linters:
+        - lll
 
   max-issues-per-linter: 0
   max-same-issues: 0

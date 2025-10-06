@@ -44,14 +44,16 @@ jobs:
       run: |
         go test -v -race -coverprofile=coverage.out ./...
         go tool cover -html=coverage.out -o coverage.html
-    
-    - name: Upload coverage to Codecov
+
+    - name: Upload coverage report
       if: matrix.go-version == env.GO_VERSION
-      uses: codecov/codecov-action@v3
+      uses: actions/upload-artifact@v3
       with:
-        file: ./coverage.out
-        flags: unittests
-        name: codecov-umbrella
+        name: coverage-report
+        path: |
+          coverage.out
+          coverage.html
+        retention-days: 30
 
   lint:
     name: Lint
@@ -76,7 +78,7 @@ jobs:
       run: go mod download
     
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v3
+      uses: golangci/golangci-lint-action@v8
       with:
         version: latest
         args: --timeout=5m
@@ -84,24 +86,30 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
         go-version: ${{ env.GO_VERSION }}
-    
+
     - name: Download dependencies
       run: go mod download
-    
+
     - name: Run Gosec Security Scanner
-      uses: securecodewarrior/github-action-add-sarif@v1
+      uses: securego/gosec@master
       with:
-        sarif-file: 'gosec-report.sarif'
-    
+        args: '-fmt sarif -out gosec-report.sarif ./...'
+
+    - name: Upload Gosec scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'gosec-report.sarif'
+
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
       with:
@@ -109,8 +117,8 @@ jobs:
         scan-ref: '.'
         format: 'sarif'
         output: 'trivy-results.sarif'
-    
-    - name: Upload Trivy scan results to GitHub Security tab
+
+    - name: Upload Trivy scan results
       uses: github/codeql-action/upload-sarif@v2
       if: always()
       with:
