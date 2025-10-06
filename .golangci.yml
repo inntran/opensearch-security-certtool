@@ -1,36 +1,8 @@
-version: 2
-
-run:
-  timeout: 5m
-
-linters-settings:
-  gocyclo:
-    min-complexity: 15
-
-  govet:
-    enable-all: true
-
-  misspell:
-    locale: US
-
-  lll:
-    line-length: 120
-
-  gosec:
-    severity: medium
-    confidence: medium
-    excludes:
-      - G304  # File path provided as taint input - acceptable for this CLI tool
-      - G306  # WriteFile permissions for config files and README
-
-  revive:
-    rules:
-      - name: exported
-
-  staticcheck:
-    checks: ["all"]
+version: "2"
 
 linters:
+  default: none
+
   enable:
     - gocyclo
     - govet
@@ -41,34 +13,69 @@ linters:
     - staticcheck
     - unused
     - ineffassign
+    - unconvert
     - revive
     - gocritic
+    - godox
+    - goconst
+    - bodyclose
+    - contextcheck
+    - durationcheck
+    - nilerr
+    - nolintlint
+    - predeclared
 
-issues:
-  exclude-rules:
-    # Exclude some linters from running on tests files
-    - path: _test\.go
-      linters:
-        - gocyclo
-        - errcheck
-        - gosec
+  settings:
+    gocyclo:
+      min-complexity: 15
 
-    # Exclude specific gosec rules for crypto operations
-    - path: internal/cert/
-      linters:
-        - gosec
-      text: "G401|G501"
+    govet:
+      enable:
+        - shadow
+      enable-all: true
 
-    # Exclude line length for long test names and template strings
-    - path: _test\.go
-      linters:
-        - lll
-      source: "func Test"
+    misspell:
+      locale: US
 
-    # Exclude line length for template constants
-    - path: internal/templates/
-      linters:
-        - lll
+    lll:
+      line-length: 120
 
-  max-issues-per-linter: 0
-  max-same-issues: 0
+    gosec:
+      severity: medium
+      confidence: medium
+      excludes:
+        - G304  # File path provided as taint input - acceptable for this CLI tool
+        - G306  # WriteFile permissions for config files and README
+
+    revive:
+      rules:
+        - name: exported
+
+    staticcheck:
+      checks: ["all"]
+
+  exclusions:
+    rules:
+      # Exclude some linters from running on tests files
+      - path: '_test\.go'
+        linters:
+          - gocyclo
+          - errcheck
+          - gosec
+
+      # Exclude specific gosec rules for crypto operations
+      - path: 'internal/cert/'
+        linters:
+          - gosec
+        text: "G401|G501"
+
+      # Exclude line length for long test names
+      - path: '_test\.go'
+        linters:
+          - lll
+        text: "func Test"
+
+      # Exclude line length for template constants
+      - path: 'internal/templates/'
+        linters:
+          - lll
