@@ -88,7 +88,9 @@ func (cg *ConfigGenerator) GenerateNodeConfigs(passwords *cert.CertificatePasswo
 }
 
 // buildNodeConfig creates the configuration structure for a specific node
-func (cg *ConfigGenerator) buildNodeConfig(node NodeConfig, allNodeDNs, adminDNs []string, caFile string, passwords *cert.CertificatePasswords) OpenSearchNodeConfig {
+func (cg *ConfigGenerator) buildNodeConfig(
+	node NodeConfig, allNodeDNs, adminDNs []string, caFile string, passwords *cert.CertificatePasswords,
+) OpenSearchNodeConfig {
 	nodeConfig := OpenSearchNodeConfig{
 		// Transport layer (always enabled)
 		TransportPemCertPath:      fmt.Sprintf("%s.pem", node.Name),
@@ -137,7 +139,7 @@ func (cg *ConfigGenerator) buildNodeConfig(node NodeConfig, allNodeDNs, adminDNs
 // writeNodeConfig writes the configuration to a YAML file
 func (cg *ConfigGenerator) writeNodeConfig(nodeName string, nodeConfig OpenSearchNodeConfig) error {
 	// Create output directory if it doesn't exist
-	if err := os.MkdirAll(cg.outputDir, 0755); err != nil {
+	if err := os.MkdirAll(cg.outputDir, 0750); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 	
@@ -146,7 +148,9 @@ func (cg *ConfigGenerator) writeNodeConfig(nodeName string, nodeConfig OpenSearc
 	encoder := yaml.NewEncoder(&buf)
 	encoder.SetIndent(2)
 	err := encoder.Encode(nodeConfig)
-	encoder.Close()
+	if closeErr := encoder.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
 	if err != nil {
 		return fmt.Errorf("failed to marshal configuration: %w", err)
 	}

@@ -81,11 +81,13 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&outputDir, "target", "t", "out", "Path to the target directory")
 	rootCmd.PersistentFlags().BoolVarP(&overwrite, "overwrite", "o", false, "Overwrite existing files")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable detailed output")
-	rootCmd.PersistentFlags().BoolVarP(&force, "force", "f", false, "Force certificate generation despite validation errors")
+	rootCmd.PersistentFlags().BoolVarP(&force, "force", "f", false,
+		"Force certificate generation despite validation errors")
 
 	// Action flags (long form for compatibility)
 	rootCmd.Flags().BoolVar(&createCA, "create-ca", false, "Create a new certificate authority")
-	rootCmd.Flags().BoolVar(&createCert, "create-cert", false, "Create certificates using an existing or newly created local certificate authority")
+	rootCmd.Flags().BoolVar(&createCert, "create-cert", false,
+		"Create certificates using an existing or newly created local certificate authority")
 	rootCmd.Flags().BoolVar(&createCSR, "create-csr", false, "Create certificate signing requests")
 }
 
@@ -121,13 +123,14 @@ func executeAction() error {
 	}
 
 	// Execute the requested action
-	if createCA {
+	switch {
+	case createCA:
 		return createCACommand()
-	} else if createCert {
+	case createCert:
 		return createCertCommand()
-	} else if createCSR {
+	case createCSR:
 		return fmt.Errorf("certificate signing request generation is not yet implemented")
+	default:
+		return nil
 	}
-
-	return nil
 }

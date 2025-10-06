@@ -31,7 +31,7 @@ func createCertCommand() error {
 		fmt.Println("Creating certificates...")
 		
 		// Create output directory if it doesn't exist
-		if err := os.MkdirAll(outputDir, 0755); err != nil {
+		if err := os.MkdirAll(outputDir, 0750); err != nil {
 			return fmt.Errorf("failed to create output directory: %w", err)
 		}
 		

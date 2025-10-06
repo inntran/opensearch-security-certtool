@@ -28,7 +28,7 @@ func createCACommand() error {
 		fmt.Println("Creating Certificate Authority...")
 		
 		// Create output directory if it doesn't exist
-		if err := os.MkdirAll(outputDir, 0755); err != nil {
+		if err := os.MkdirAll(outputDir, 0750); err != nil {
 			return fmt.Errorf("failed to create output directory: %w", err)
 		}
 		
@@ -89,9 +89,9 @@ func createCACommand() error {
 			}
 			
 			fmt.Printf("✓ Intermediate CA created: %s\n", filepath.Join(outputDir, filename+".pem"))
-			
-			// Use intermediate CA for future certificate signing
-			rootCA = intermediateCA
+
+			// Intermediate CA is saved to disk and will be used for signing
+			_ = intermediateCA
 		}
 		
 		// Generate CA documentation

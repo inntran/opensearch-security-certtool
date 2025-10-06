@@ -136,7 +136,9 @@ func ValidateDNSName(name string) error {
 	}
 
 	// Check for valid characters and format
-	dnsRegex := regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$`)
+	dnsRegex := regexp.MustCompile(
+		`^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$`,
+	)
 	if !dnsRegex.MatchString(name) {
 		return fmt.Errorf("invalid DNS name format: %s", name)
 	}

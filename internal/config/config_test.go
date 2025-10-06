@@ -514,10 +514,8 @@ func TestConfigValidate(t *testing.T) {
 				if tt.errMsg != "" && !containsString(err.Error(), tt.errMsg) {
 					t.Errorf("Expected error to contain '%s', got '%s'", tt.errMsg, err.Error())
 				}
-			} else {
-				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
-				}
+			} else if err != nil {
+				t.Errorf("Unexpected error: %v", err)
 			}
 		})
 	}

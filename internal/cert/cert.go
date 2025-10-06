@@ -47,12 +47,16 @@ type CAInfo struct {
 }
 
 // GenerateCA creates a new certificate authority
-func (cm *CertificateManager) GenerateCA(dn string, keySize int, validityDays int, filename string, passwordSetting string) (*CAInfo, error) {
+func (cm *CertificateManager) GenerateCA(
+	dn string, keySize int, validityDays int, filename string, passwordSetting string,
+) (*CAInfo, error) {
 	return cm.GenerateCAWithConfig(dn, keySize, validityDays, filename, passwordSetting, "")
 }
 
 // GenerateCAWithConfig creates a new certificate authority with CRL distribution points
-func (cm *CertificateManager) GenerateCAWithConfig(dn string, keySize int, validityDays int, filename string, passwordSetting string, crlDistributionPoints string) (*CAInfo, error) {
+func (cm *CertificateManager) GenerateCAWithConfig(
+	dn string, keySize int, validityDays int, filename string, passwordSetting string, crlDistributionPoints string,
+) (*CAInfo, error) {
 	// Generate private key
 	privateKey, err := rsa.GenerateKey(rand.Reader, keySize)
 	if err != nil {
@@ -160,12 +164,18 @@ func (cm *CertificateManager) GenerateCAWithConfig(dn string, keySize int, valid
 }
 
 // GenerateNodeCertificate creates a node certificate signed by the CA
-func (cm *CertificateManager) GenerateNodeCertificate(ca *CAInfo, dn string, dnsNames []string, ipAddresses []string, validityDays int, filename string, passwordSetting string) error {
+func (cm *CertificateManager) GenerateNodeCertificate(
+	ca *CAInfo, dn string, dnsNames []string, ipAddresses []string,
+	validityDays int, filename string, passwordSetting string,
+) error {
 	return cm.GenerateNodeCertificateWithOID(ca, dn, dnsNames, ipAddresses, validityDays, filename, passwordSetting, "")
 }
 
 // GenerateNodeCertificateWithOID creates a node certificate with optional node OID
-func (cm *CertificateManager) GenerateNodeCertificateWithOID(ca *CAInfo, dn string, dnsNames []string, ipAddresses []string, validityDays int, filename string, passwordSetting string, nodeOID string) error {
+func (cm *CertificateManager) GenerateNodeCertificateWithOID(
+	ca *CAInfo, dn string, dnsNames []string, ipAddresses []string,
+	validityDays int, filename string, passwordSetting string, nodeOID string,
+) error {
 	// Generate private key
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -287,7 +297,9 @@ func (cm *CertificateManager) GenerateNodeCertificateWithOID(ca *CAInfo, dn stri
 }
 
 // GenerateClientCertificate creates a client certificate signed by the CA
-func (cm *CertificateManager) GenerateClientCertificate(ca *CAInfo, dn string, validityDays int, filename string, passwordSetting string) error {
+func (cm *CertificateManager) GenerateClientCertificate(
+	ca *CAInfo, dn string, validityDays int, filename string, passwordSetting string,
+) error {
 	// Generate private key
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -374,13 +386,13 @@ func (cm *CertificateManager) GenerateClientCertificate(ca *CAInfo, dn string, v
 // saveCertificateAndKey saves certificate and key to separate files
 func (cm *CertificateManager) saveCertificateAndKey(basename string, certPEM, keyPEM []byte) error {
 	// Create output directory if it doesn't exist
-	if err := os.MkdirAll(cm.outputDir, 0755); err != nil {
+	if err := os.MkdirAll(cm.outputDir, 0750); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	// Save certificate
 	certFile := filepath.Join(cm.outputDir, basename+".pem")
-	if err := os.WriteFile(certFile, certPEM, 0644); err != nil {
+	if err := os.WriteFile(certFile, certPEM, 0600); err != nil {
 		return fmt.Errorf("failed to write certificate file: %w", err)
 	}
 
@@ -460,7 +472,9 @@ func parseDistinguishedName(dn string) (pkix.Name, error) {
 func (cm *CertificateManager) encryptPrivateKey(keyDER []byte, password string) ([]byte, error) {
 	// Use PKCS#8 encryption similar to the Java version
 	// This uses PBE-SHA1-3DES encryption
-	encryptedKey, err := x509.EncryptPEMBlock(rand.Reader, "ENCRYPTED PRIVATE KEY", keyDER, []byte(password), x509.PEMCipherAES256)
+	encryptedKey, err := x509.EncryptPEMBlock(
+		rand.Reader, "ENCRYPTED PRIVATE KEY", keyDER, []byte(password), x509.PEMCipherAES256,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt private key: %w", err)
 	}

@@ -116,7 +116,9 @@ func (v *Validator) validateCAConfig(ca config.CAConfig) ([]ValidationError, []V
 	return validationErrors, warnings
 }
 
-func (v *Validator) validateCertConfig(cert config.CertConfig, fieldPrefix string) ([]ValidationError, []ValidationWarning) {
+func (v *Validator) validateCertConfig(
+	cert config.CertConfig, fieldPrefix string,
+) ([]ValidationError, []ValidationWarning) {
 	var validationErrors []ValidationError
 	var warnings []ValidationWarning
 
