@@ -186,14 +186,14 @@ func GenerateSecurePassword(length int) (string, error) {
 	return string(password), nil
 }
 
-// randomInt generates a cryptographically secure random integer in [0, max)
-func randomInt(max int) int {
+// randomInt generates a cryptographically secure random integer in [0, maximum)
+func randomInt(maximum int) int {
 	randomBytes := make([]byte, 1)
 	if _, err := rand.Read(randomBytes); err != nil {
 		// This should never fail in practice, but if it does, return 0
 		return 0
 	}
-	return int(randomBytes[0]) % max
+	return int(randomBytes[0]) % maximum
 }
 
 // ValidateCertificate performs comprehensive certificate validation
