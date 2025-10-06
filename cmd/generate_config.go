@@ -69,5 +69,5 @@ The generated configuration snippets should be added to each node's opensearch.y
 }
 
 func init() {
-	// No longer registering as subcommand - using flags instead
+	rootCmd.AddCommand(generateConfigCmd)
 }

@@ -218,7 +218,7 @@ func createCertCommand() error {
 }
 
 func init() {
-	// No longer registering as subcommand - using flags instead
+	rootCmd.AddCommand(createCertCmd)
 }
 
 // loadCA loads an existing CA certificate and private key with optional password

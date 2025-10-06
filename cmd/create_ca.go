@@ -105,7 +105,7 @@ func createCACommand() error {
 }
 
 func init() {
-	// No longer registering as subcommand - using flags instead
+	rootCmd.AddCommand(createCACmd)
 }
 
 // removeExtension removes the specified extension from filename if present
