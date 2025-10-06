@@ -80,28 +80,32 @@ jobs:
     - name: Run Gosec Security Scanner
       uses: securego/gosec@master
       with:
-        args: '-fmt sarif -out gosec-report.sarif ./...'
+        args: '-no-fail -fmt json -out gosec-report.json ./...'
       continue-on-error: true
 
     - name: Upload Gosec scan results
-      uses: github/codeql-action/upload-sarif@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
-        sarif_file: 'gosec-report.sarif'
+        name: gosec-report
+        path: gosec-report.json
+        retention-days: 30
 
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@0.33.1
       with:
         scan-type: 'fs'
         scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
+        format: 'json'
+        output: 'trivy-results.json'
 
     - name: Upload Trivy scan results
-      uses: github/codeql-action/upload-sarif@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
-        sarif_file: 'trivy-results.sarif'
+        name: trivy-report
+        path: trivy-results.json
+        retention-days: 30
 
   build:
     name: Build
