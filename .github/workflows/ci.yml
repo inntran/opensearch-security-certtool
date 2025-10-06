@@ -9,17 +9,11 @@ on:
 jobs:
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version-file: 'go.mod'
-        check-latest: true
 
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -51,17 +45,11 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version-file: 'go.mod'
-        check-latest: true
 
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -80,17 +68,11 @@ jobs:
 
   security:
     name: Security Scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version-file: 'go.mod'
-        check-latest: true
 
     - name: Download dependencies
       run: go mod download
@@ -122,18 +104,12 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [test, lint]
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version-file: 'go.mod'
-        check-latest: true
 
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -159,18 +135,12 @@ jobs:
 
   integration-test:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build]
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version-file: 'go.mod'
-        check-latest: true
 
     - name: Download build artifacts
       uses: actions/download-artifact@v4
