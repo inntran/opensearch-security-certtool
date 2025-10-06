@@ -45,6 +45,15 @@ Usage Options:
    opensearch-security-certtool --create-csr --config config.yml
 
 For flag-based usage, you must specify exactly one action flag and a config file.`,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Skip initialization for help and version commands
+		if cmd.Name() == "help" || cmd.Name() == "version" {
+			return nil
+		}
+
+		// Initialize config and certManager for all commands that need them
+		return initializeConfig()
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Check that at least one action flag is specified
 		actionCount := 0
@@ -91,8 +100,8 @@ func init() {
 	rootCmd.Flags().BoolVar(&createCSR, "create-csr", false, "Create certificate signing requests")
 }
 
-// executeAction handles the common setup and execution
-func executeAction() error {
+// initializeConfig loads configuration and initializes global variables
+func initializeConfig() error {
 	// Load configuration
 	if cfgFile == "" {
 		return fmt.Errorf("config file is required, use --config flag")
@@ -122,6 +131,11 @@ func executeAction() error {
 		fmt.Printf("Output directory: %s\n", outputDir)
 	}
 
+	return nil
+}
+
+// executeAction handles the flag-based action execution
+func executeAction() error {
 	// Execute the requested action
 	switch {
 	case createCA:
