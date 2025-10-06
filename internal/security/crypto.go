@@ -155,20 +155,43 @@ func GenerateSecurePassword(length int) (string, error) {
 		return "", fmt.Errorf("password length %d is below minimum %d", length, DefaultSecurityConfig().MinPasswordLength)
 	}
 
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
-	password := make([]byte, length)
-	charsetLen := len(charset)
+	const (
+		lowercase = "abcdefghijklmnopqrstuvwxyz"
+		uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		digits    = "0123456789"
+		special   = "!@#$%^&*"
+		charset   = lowercase + uppercase + digits + special
+	)
 
+	password := make([]byte, length)
+
+	// Ensure at least one character from each required character class
+	password[0] = lowercase[randomInt(len(lowercase))]
+	password[1] = uppercase[randomInt(len(uppercase))]
+	password[2] = digits[randomInt(len(digits))]
+
+	// Fill the rest with random characters from the full charset
+	for i := 3; i < length; i++ {
+		password[i] = charset[randomInt(len(charset))]
+	}
+
+	// Shuffle the password to avoid predictable patterns
 	for i := range password {
-		// Generate cryptographically secure random index
-		randomBytes := make([]byte, 1)
-		if _, err := rand.Read(randomBytes); err != nil {
-			return "", fmt.Errorf("failed to generate random bytes: %w", err)
-		}
-		password[i] = charset[int(randomBytes[0])%charsetLen]
+		j := randomInt(len(password))
+		password[i], password[j] = password[j], password[i]
 	}
 
 	return string(password), nil
+}
+
+// randomInt generates a cryptographically secure random integer in [0, max)
+func randomInt(max int) int {
+	randomBytes := make([]byte, 1)
+	if _, err := rand.Read(randomBytes); err != nil {
+		// This should never fail in practice, but if it does, return 0
+		return 0
+	}
+	return int(randomBytes[0]) % max
 }
 
 // ValidateCertificate performs comprehensive certificate validation
