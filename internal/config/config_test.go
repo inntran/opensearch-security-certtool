@@ -189,6 +189,71 @@ invalid yaml structure
 	}
 }
 
+func TestLoadConfigEllipticCurves(t *testing.T) {
+	tempDir := t.TempDir()
+
+	ecConfigYAML := `
+ca:
+  root:
+    dn: CN=root.ca.example.com,O=Test Org,C=US
+    pkPassword: auto
+
+defaults:
+  useEllipticCurves: true
+  ellipticCurve: P-256
+
+nodes:
+  - name: node1
+    dn: CN=node1.example.com,O=Test Org,C=US
+`
+
+	configFile := filepath.Join(tempDir, "ec-config.yml")
+	if err := os.WriteFile(configFile, []byte(ecConfigYAML), 0644); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+
+	config, err := LoadConfig(configFile)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	if !config.Defaults.UseEllipticCurves {
+		t.Error("Expected useEllipticCurves to be true")
+	}
+	if config.Defaults.EllipticCurve != "P-256" {
+		t.Errorf("Expected default ellipticCurve P-256, got %s", config.Defaults.EllipticCurve)
+	}
+	// Explicit curve should cascade to the root CA since it wasn't set there.
+	if config.CA.Root.EllipticCurve != "P-256" {
+		t.Errorf("Expected root CA ellipticCurve to inherit P-256, got %s", config.CA.Root.EllipticCurve)
+	}
+}
+
+func TestConfigApplyDefaultsEllipticCurve(t *testing.T) {
+	// useEllipticCurves defaults to false, and ellipticCurve should still
+	// default to P-384 even when unset, matching the Java tool's default.
+	config := &Config{
+		CA: CAConfig{
+			Root: CertConfig{DN: "CN=test.example.com,O=Test Org,C=US"},
+		},
+		Nodes: []NodeConfig{
+			{Name: "node1", DN: "CN=node1.example.com,O=Test Org,C=US"},
+		},
+	}
+
+	config.applyDefaults()
+
+	if config.Defaults.UseEllipticCurves {
+		t.Error("Expected useEllipticCurves to default to false")
+	}
+	if config.Defaults.EllipticCurve != DefaultEllipticCurve {
+		t.Errorf("Expected default ellipticCurve %s, got %s", DefaultEllipticCurve, config.Defaults.EllipticCurve)
+	}
+	if config.CA.Root.EllipticCurve != DefaultEllipticCurve {
+		t.Errorf("Expected root CA ellipticCurve %s, got %s", DefaultEllipticCurve, config.CA.Root.EllipticCurve)
+	}
+}
+
 func TestLoadConfigFileNotFound(t *testing.T) {
 	_, err := LoadConfig("/nonexistent/config.yml")
 	if err == nil {

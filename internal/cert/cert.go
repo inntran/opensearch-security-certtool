@@ -1,6 +1,9 @@
 package cert
 
 import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -40,10 +43,60 @@ func NewCertificateManager(outputDir string, passwordLength int, log *logger.Log
 // CAInfo holds CA certificate and private key information
 type CAInfo struct {
 	Certificate *x509.Certificate
-	PrivateKey  *rsa.PrivateKey
+	PrivateKey  crypto.Signer
 	CertPEM     []byte
 	KeyPEM      []byte
 	Password    string
+}
+
+// KeyGenSettings controls whether RSA or ECDSA keys are generated.
+// UseEllipticCurves mirrors the Java Search Guard TLS Tool's global
+// "useEllipticCurves" setting; EllipticCurve selects the named curve
+// (e.g. "P-384") when UseEllipticCurves is true.
+type KeyGenSettings struct {
+	UseEllipticCurves bool
+	EllipticCurve     string
+}
+
+// generatePrivateKey creates a new RSA or ECDSA private key depending on settings.
+// When useEC is true, the named curve is used (defaulting to P-384 if empty);
+// otherwise an RSA key of the given size is generated.
+func generatePrivateKey(useEC bool, curveName string, keySize int) (crypto.Signer, error) {
+	if !useEC {
+		privateKey, err := rsa.GenerateKey(rand.Reader, keySize)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate RSA private key: %w", err)
+		}
+		return privateKey, nil
+	}
+
+	curve, err := curveByName(curveName)
+	if err != nil {
+		return nil, err
+	}
+
+	privateKey, err := ecdsa.GenerateKey(curve, rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate EC private key: %w", err)
+	}
+	return privateKey, nil
+}
+
+// curveByName maps a configured curve name to a stdlib crypto/elliptic curve.
+// An empty name defaults to P-384, matching the Java tool's default.
+func curveByName(name string) (elliptic.Curve, error) {
+	switch name {
+	case "", "P-384":
+		return elliptic.P384(), nil
+	case "P-224":
+		return elliptic.P224(), nil
+	case "P-256":
+		return elliptic.P256(), nil
+	case "P-521":
+		return elliptic.P521(), nil
+	default:
+		return nil, fmt.Errorf("unsupported elliptic curve: %s", name)
+	}
 }
 
 // GenerateCA creates a new certificate authority
@@ -57,8 +110,17 @@ func (cm *CertificateManager) GenerateCA(
 func (cm *CertificateManager) GenerateCAWithConfig(
 	dn string, keySize int, validityDays int, filename string, passwordSetting string, crlDistributionPoints string,
 ) (*CAInfo, error) {
+	return cm.GenerateCAWithKeySettings(dn, keySize, validityDays, filename, passwordSetting, crlDistributionPoints, KeyGenSettings{})
+}
+
+// GenerateCAWithKeySettings creates a new certificate authority with CRL distribution points
+// and explicit key generation settings (RSA vs. ECDSA).
+func (cm *CertificateManager) GenerateCAWithKeySettings(
+	dn string, keySize int, validityDays int, filename string, passwordSetting string,
+	crlDistributionPoints string, keySettings KeyGenSettings,
+) (*CAInfo, error) {
 	// Generate private key
-	privateKey, err := rsa.GenerateKey(rand.Reader, keySize)
+	privateKey, err := generatePrivateKey(keySettings.UseEllipticCurves, keySettings.EllipticCurve, keySize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate private key: %w", err)
 	}
@@ -87,7 +149,7 @@ func (cm *CertificateManager) GenerateCAWithConfig(
 	}
 
 	// Create certificate
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, privateKey.Public(), privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create certificate: %w", err)
 	}
@@ -176,8 +238,19 @@ func (cm *CertificateManager) GenerateNodeCertificateWithOID(
 	ca *CAInfo, dn string, dnsNames []string, ipAddresses []string,
 	validityDays int, filename string, passwordSetting string, nodeOID string,
 ) error {
+	return cm.GenerateNodeCertificateWithKeySettings(
+		ca, dn, dnsNames, ipAddresses, validityDays, filename, passwordSetting, nodeOID, KeyGenSettings{},
+	)
+}
+
+// GenerateNodeCertificateWithKeySettings creates a node certificate with an optional
+// node OID and explicit key generation settings (RSA vs. ECDSA).
+func (cm *CertificateManager) GenerateNodeCertificateWithKeySettings(
+	ca *CAInfo, dn string, dnsNames []string, ipAddresses []string,
+	validityDays int, filename string, passwordSetting string, nodeOID string, keySettings KeyGenSettings,
+) error {
 	// Generate private key
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	privateKey, err := generatePrivateKey(keySettings.UseEllipticCurves, keySettings.EllipticCurve, 2048)
 	if err != nil {
 		return fmt.Errorf("failed to generate private key: %w", err)
 	}
@@ -223,7 +296,7 @@ func (cm *CertificateManager) GenerateNodeCertificateWithOID(
 	}
 
 	// Create certificate
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, ca.Certificate, &privateKey.PublicKey, ca.PrivateKey)
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, ca.Certificate, privateKey.Public(), ca.PrivateKey)
 	if err != nil {
 		return fmt.Errorf("failed to create certificate: %w", err)
 	}
@@ -300,8 +373,16 @@ func (cm *CertificateManager) GenerateNodeCertificateWithOID(
 func (cm *CertificateManager) GenerateClientCertificate(
 	ca *CAInfo, dn string, validityDays int, filename string, passwordSetting string,
 ) error {
+	return cm.GenerateClientCertificateWithKeySettings(ca, dn, validityDays, filename, passwordSetting, KeyGenSettings{})
+}
+
+// GenerateClientCertificateWithKeySettings creates a client certificate signed by the CA
+// using explicit key generation settings (RSA vs. ECDSA).
+func (cm *CertificateManager) GenerateClientCertificateWithKeySettings(
+	ca *CAInfo, dn string, validityDays int, filename string, passwordSetting string, keySettings KeyGenSettings,
+) error {
 	// Generate private key
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	privateKey, err := generatePrivateKey(keySettings.UseEllipticCurves, keySettings.EllipticCurve, 2048)
 	if err != nil {
 		return fmt.Errorf("failed to generate private key: %w", err)
 	}
@@ -324,7 +405,7 @@ func (cm *CertificateManager) GenerateClientCertificate(
 	}
 
 	// Create certificate
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, ca.Certificate, &privateKey.PublicKey, ca.PrivateKey)
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, ca.Certificate, privateKey.Public(), ca.PrivateKey)
 	if err != nil {
 		return fmt.Errorf("failed to create certificate: %w", err)
 	}
@@ -511,7 +592,7 @@ func LoadCAFromPEMWithPassword(certPEM, keyPEM []byte, password string) (*CAInfo
 		return nil, fmt.Errorf("failed to decode private key PEM")
 	}
 	
-	var privateKey *rsa.PrivateKey
+	var privateKey crypto.Signer
 	switch keyBlock.Type {
 	case "PRIVATE KEY":
 		// PKCS#8 format
@@ -519,10 +600,9 @@ func LoadCAFromPEMWithPassword(certPEM, keyPEM []byte, password string) (*CAInfo
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse PKCS8 private key: %w", err)
 		}
-		var ok bool
-		privateKey, ok = key.(*rsa.PrivateKey)
-		if !ok {
-			return nil, fmt.Errorf("private key is not RSA")
+		privateKey, err = asSigner(key)
+		if err != nil {
+			return nil, err
 		}
 	case "RSA PRIVATE KEY":
 		// PKCS#1 format
@@ -531,39 +611,59 @@ func LoadCAFromPEMWithPassword(certPEM, keyPEM []byte, password string) (*CAInfo
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse PKCS1 private key: %w", err)
 		}
+	case "EC PRIVATE KEY":
+		// SEC1/PKCS#1-style EC format
+		ecKey, err := x509.ParseECPrivateKey(keyBlock.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse EC private key: %w", err)
+		}
+		privateKey = ecKey
 	case "ENCRYPTED PRIVATE KEY":
 		// Encrypted PKCS#8 format
 		if password == "" {
 			return nil, fmt.Errorf("encrypted private key requires password")
 		}
-		
+
 		// Decrypt the private key
 		decryptedKey, err := x509.DecryptPEMBlock(keyBlock, []byte(password))
 		if err != nil {
 			return nil, fmt.Errorf("failed to decrypt private key: %w", err)
 		}
-		
+
 		// Parse the decrypted PKCS#8 key
 		key, err := x509.ParsePKCS8PrivateKey(decryptedKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse decrypted PKCS8 private key: %w", err)
 		}
-		
-		var ok bool
-		privateKey, ok = key.(*rsa.PrivateKey)
-		if !ok {
-			return nil, fmt.Errorf("decrypted private key is not RSA")
+
+		privateKey, err = asSigner(key)
+		if err != nil {
+			return nil, fmt.Errorf("decrypted %w", err)
 		}
 	default:
 		return nil, fmt.Errorf("unsupported private key type: %s", keyBlock.Type)
 	}
-	
+
 	return &CAInfo{
 		Certificate: cert,
 		PrivateKey:  privateKey,
 		CertPEM:     certPEM,
 		KeyPEM:      keyPEM,
 	}, nil
+}
+
+// asSigner converts the result of x509.ParsePKCS8PrivateKey (which returns
+// an untyped interface{}) into a crypto.Signer, accepting both RSA and
+// ECDSA keys.
+func asSigner(key interface{}) (crypto.Signer, error) {
+	switch k := key.(type) {
+	case *rsa.PrivateKey:
+		return k, nil
+	case *ecdsa.PrivateKey:
+		return k, nil
+	default:
+		return nil, fmt.Errorf("private key is not RSA or ECDSA")
+	}
 }
 
 // parseOID parses an OID string like "1.2.3.4.5" into an asn1.ObjectIdentifier

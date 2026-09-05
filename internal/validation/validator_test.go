@@ -99,6 +99,70 @@ func TestValidator_ValidateConfig(t *testing.T) {
 			expectValid:    false,
 			expectedErrors: 1,
 		},
+		{
+			name: "valid_elliptic_curve_config",
+			config: &config.Config{
+				CA: config.CAConfig{
+					Root: config.CertConfig{
+						DN:            "CN=test.example.com,O=Test Org,C=US",
+						EllipticCurve: "P-384",
+					},
+				},
+				Defaults: config.DefaultConfig{
+					UseEllipticCurves: true,
+					EllipticCurve:     "P-384",
+				},
+				Nodes: []config.NodeConfig{
+					{
+						Name: "node1",
+						DN:   "CN=node1.example.com,O=Test Org,C=US",
+					},
+				},
+			},
+			expectValid:    true,
+			expectedErrors: 0,
+		},
+		{
+			name: "invalid_elliptic_curve_name",
+			config: &config.Config{
+				CA: config.CAConfig{
+					Root: config.CertConfig{
+						DN:            "CN=test.example.com,O=Test Org,C=US",
+						EllipticCurve: "not-a-curve",
+					},
+				},
+				Nodes: []config.NodeConfig{
+					{
+						Name: "node1",
+						DN:   "CN=node1.example.com,O=Test Org,C=US",
+					},
+				},
+			},
+			expectValid:    false,
+			expectedErrors: 1,
+		},
+		{
+			name: "invalid_default_elliptic_curve_name",
+			config: &config.Config{
+				CA: config.CAConfig{
+					Root: config.CertConfig{
+						DN: "CN=test.example.com,O=Test Org,C=US",
+					},
+				},
+				Defaults: config.DefaultConfig{
+					UseEllipticCurves: true,
+					EllipticCurve:     "secp256k1",
+				},
+				Nodes: []config.NodeConfig{
+					{
+						Name: "node1",
+						DN:   "CN=node1.example.com,O=Test Org,C=US",
+					},
+				},
+			},
+			expectValid:    false,
+			expectedErrors: 1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -116,6 +180,32 @@ func TestValidator_ValidateConfig(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestValidator_KeySizeNotValidatedWhenUsingEllipticCurves(t *testing.T) {
+	validator := NewValidator()
+
+	cfg := &config.Config{
+		CA: config.CAConfig{
+			Root: config.CertConfig{
+				DN:      "CN=test.example.com,O=Test Org,C=US",
+				KeySize: 1024, // Would normally be rejected as too weak for RSA
+			},
+		},
+		Defaults: config.DefaultConfig{
+			UseEllipticCurves: true,
+			EllipticCurve:     "P-384",
+		},
+		Nodes: []config.NodeConfig{
+			{Name: "node1", DN: "CN=node1.example.com,O=Test Org,C=US"},
+		},
+	}
+
+	result := validator.ValidateConfig(cfg)
+
+	if !result.IsValid {
+		t.Errorf("Expected config to be valid when useEllipticCurves is true, got errors: %+v", result.Errors)
 	}
 }
 

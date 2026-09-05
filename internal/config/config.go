@@ -29,6 +29,7 @@ type CertConfig struct {
 	PKPassword             string   `yaml:"pkPassword"`
 	File                   string   `yaml:"file"`
 	CRLDistributionPoints  string   `yaml:"crlDistributionPoints"`
+	EllipticCurve          string   `yaml:"ellipticCurve"`
 }
 
 // DefaultConfig represents default values
@@ -42,7 +43,14 @@ type DefaultConfig struct {
 	ReuseTransportCertificates bool     `yaml:"reuseTransportCertificatesForHttp"`
 	VerifyHostnames            bool     `yaml:"verifyHostnames"`
 	ResolveHostnames           bool     `yaml:"resolveHostnames"`
+	UseEllipticCurves          bool     `yaml:"useEllipticCurves"`
+	EllipticCurve              string   `yaml:"ellipticCurve"`
 }
+
+// DefaultEllipticCurve is the curve used when useEllipticCurves is enabled
+// and no explicit ellipticCurve is configured. This matches the Java
+// Search Guard TLS Tool's default of "P-384".
+const DefaultEllipticCurve = "P-384"
 
 // NodeConfig represents node certificate configuration
 type NodeConfig struct {
@@ -97,6 +105,11 @@ func (c *Config) applyDefaults() {
 		c.CA.Intermediate.KeySize = 2048
 	}
 
+	// Default elliptic curve (only meaningful when useEllipticCurves is true)
+	if c.Defaults.EllipticCurve == "" {
+		c.Defaults.EllipticCurve = DefaultEllipticCurve
+	}
+
 	// Apply defaults to CA certificates
 	if c.CA.Root.ValidityDays == 0 {
 		c.CA.Root.ValidityDays = c.Defaults.ValidityDays
@@ -109,6 +122,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.CA.Intermediate.PKPassword == "" {
 		c.CA.Intermediate.PKPassword = c.Defaults.PKPassword
+	}
+	if c.CA.Root.EllipticCurve == "" {
+		c.CA.Root.EllipticCurve = c.Defaults.EllipticCurve
+	}
+	if c.CA.Intermediate.EllipticCurve == "" {
+		c.CA.Intermediate.EllipticCurve = c.Defaults.EllipticCurve
 	}
 }
 

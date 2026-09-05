@@ -47,14 +47,18 @@ func createCACommand() error {
 			}
 			// Remove .pem extension if present as it will be added automatically
 			filename = removeExtension(filename, ".pem")
-			
-			rootCA, err = certManager.GenerateCAWithConfig(
+
+			rootCA, err = certManager.GenerateCAWithKeySettings(
 				cfg.CA.Root.DN,
 				cfg.CA.Root.KeySize,
 				cfg.CA.Root.ValidityDays,
 				filename,
 				cfg.CA.Root.PKPassword,
 				cfg.CA.Root.CRLDistributionPoints,
+				cert.KeyGenSettings{
+					UseEllipticCurves: cfg.Defaults.UseEllipticCurves,
+					EllipticCurve:     cfg.CA.Root.EllipticCurve,
+				},
 			)
 			if err != nil {
 				return fmt.Errorf("failed to create root CA: %w", err)
@@ -74,15 +78,19 @@ func createCACommand() error {
 			}
 			
 			filename := "signing-ca"
-			
+
 			// For intermediate CA, we need to sign it with the root CA
-			intermediateCA, err := certManager.GenerateCAWithConfig(
+			intermediateCA, err := certManager.GenerateCAWithKeySettings(
 				cfg.CA.Intermediate.DN,
 				cfg.CA.Intermediate.KeySize,
 				cfg.CA.Intermediate.ValidityDays,
 				filename,
 				cfg.CA.Intermediate.PKPassword,
 				cfg.CA.Intermediate.CRLDistributionPoints,
+				cert.KeyGenSettings{
+					UseEllipticCurves: cfg.Defaults.UseEllipticCurves,
+					EllipticCurve:     cfg.CA.Intermediate.EllipticCurve,
+				},
 			)
 			if err != nil {
 				return fmt.Errorf("failed to create intermediate CA: %w", err)

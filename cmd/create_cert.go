@@ -54,12 +54,17 @@ func createCertCommand() error {
 				fmt.Println("CA not found, creating new CA...")
 			}
 			
-			rootCA, err = certManager.GenerateCA(
+			rootCA, err = certManager.GenerateCAWithKeySettings(
 				cfg.CA.Root.DN,
 				cfg.CA.Root.KeySize,
 				cfg.CA.Root.ValidityDays,
 				caFile,
 				cfg.CA.Root.PKPassword,
+				cfg.CA.Root.CRLDistributionPoints,
+				cert.KeyGenSettings{
+					UseEllipticCurves: cfg.Defaults.UseEllipticCurves,
+					EllipticCurve:     cfg.CA.Root.EllipticCurve,
+				},
 			)
 			if err != nil {
 				return fmt.Errorf("failed to create CA: %w", err)
@@ -94,12 +99,17 @@ func createCertCommand() error {
 					fmt.Println("Creating intermediate CA...")
 				}
 				
-				intermediateCA, err := certManager.GenerateCA(
+				intermediateCA, err := certManager.GenerateCAWithKeySettings(
 					cfg.CA.Intermediate.DN,
 					cfg.CA.Intermediate.KeySize,
 					cfg.CA.Intermediate.ValidityDays,
 					"signing-ca",
 					cfg.CA.Intermediate.PKPassword,
+					cfg.CA.Intermediate.CRLDistributionPoints,
+					cert.KeyGenSettings{
+						UseEllipticCurves: cfg.Defaults.UseEllipticCurves,
+						EllipticCurve:     cfg.CA.Intermediate.EllipticCurve,
+					},
 				)
 				if err != nil {
 					return fmt.Errorf("failed to create intermediate CA: %w", err)
@@ -134,7 +144,12 @@ func createCertCommand() error {
 			dnsNames := node.GetDNSNames()
 			ipAddresses := node.GetIPAddresses()
 			
-			err := certManager.GenerateNodeCertificateWithOID(
+			keySettings := cert.KeyGenSettings{
+				UseEllipticCurves: cfg.Defaults.UseEllipticCurves,
+				EllipticCurve:     cfg.Defaults.EllipticCurve,
+			}
+
+			err := certManager.GenerateNodeCertificateWithKeySettings(
 				rootCA,
 				node.DN,
 				dnsNames,
@@ -143,17 +158,18 @@ func createCertCommand() error {
 				node.Name,
 				cfg.Defaults.PKPassword,
 				cfg.Defaults.NodeOID,
+				keySettings,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to create certificate for node %s: %w", node.Name, err)
 			}
-			
+
 			fmt.Printf("✓ Node certificate created: %s\n", node.Name)
-			
+
 			// Generate HTTP certificate if enabled
 			if cfg.Defaults.HTTPSEnabled && !cfg.Defaults.ReuseTransportCertificates {
 				httpName := node.Name + "_http"
-				err := certManager.GenerateNodeCertificateWithOID(
+				err := certManager.GenerateNodeCertificateWithKeySettings(
 					rootCA,
 					node.DN,
 					dnsNames,
@@ -162,6 +178,7 @@ func createCertCommand() error {
 					httpName,
 					cfg.Defaults.PKPassword,
 					cfg.Defaults.NodeOID,
+					keySettings,
 				)
 				if err != nil {
 					return fmt.Errorf("failed to create HTTP certificate for node %s: %w", node.Name, err)
@@ -176,12 +193,16 @@ func createCertCommand() error {
 				fmt.Printf("Creating certificate for client: %s\n", client.Name)
 			}
 			
-			err := certManager.GenerateClientCertificate(
+			err := certManager.GenerateClientCertificateWithKeySettings(
 				rootCA,
 				client.DN,
 				cfg.Defaults.ValidityDays,
 				client.Name,
 				cfg.Defaults.PKPassword,
+				cert.KeyGenSettings{
+					UseEllipticCurves: cfg.Defaults.UseEllipticCurves,
+					EllipticCurve:     cfg.Defaults.EllipticCurve,
+				},
 			)
 			if err != nil {
 				return fmt.Errorf("failed to create certificate for client %s: %w", client.Name, err)
