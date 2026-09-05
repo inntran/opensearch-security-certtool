@@ -35,7 +35,7 @@ jobs:
         go tool cover -html=coverage.out -o coverage.html
 
     - name: Upload coverage report
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: coverage-report
         path: |
@@ -84,7 +84,7 @@ jobs:
       continue-on-error: true
 
     - name: Upload Gosec scan results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: gosec-report
@@ -100,7 +100,7 @@ jobs:
         output: 'trivy-results.json'
 
     - name: Upload Trivy scan results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: trivy-report
@@ -132,7 +132,7 @@ jobs:
       run: make build-all
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: binaries
         path: dist/
@@ -173,7 +173,7 @@ jobs:
 
     - name: Upload test output
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: test-certificates
         path: test-output/
