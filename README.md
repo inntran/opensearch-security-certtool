@@ -142,8 +142,35 @@ The tool uses YAML configuration files compatible with the original Java tool fo
 - **`crlDistributionPoints`**: Specify CRL endpoints for certificate revocation
 - **`nodeOid`**: Custom Node OID for OpenSearch Security compatibility
 - **`httpsEnabled`**: Generate separate HTTP certificates for REST API
+- **`useEllipticCurves`**: Generate ECDSA keys instead of RSA (see below)
 
 See `examples/config.yml` for a complete configuration example.
+
+### Elliptic Curve (ECDSA) Keys
+
+By default, all keys (CA, node, and client) are generated as RSA keys, matching the tool's
+historical behavior. To use ECDSA keys instead, set `useEllipticCurves: true` under `defaults`:
+
+```yaml
+defaults:
+  useEllipticCurves: true
+  ellipticCurve: P-384   # optional, this is the default
+```
+
+- **`useEllipticCurves`** (boolean, default `false`) is a global setting under `defaults` that
+  switches key generation from RSA to ECDSA for the root CA, intermediate CA, node certificates,
+  and client certificates. This mirrors the Java Search Guard TLS Tool's `useEllipticCurves`
+  option.
+- **`ellipticCurve`** (string, default `P-384`) selects the named curve. Supported values are
+  `P-224`, `P-256`, `P-384`, and `P-521` (Go stdlib `crypto/elliptic` curves). It can be set under
+  `defaults` for a global default, and overridden per CA under `ca.root.ellipticCurve` /
+  `ca.intermediate.ellipticCurve`.
+- When `useEllipticCurves` is `false` (or unset), `ellipticCurve` and `keysize` behave exactly as
+  before — RSA keys are generated at the configured `keysize` (default 2048 bits).
+- Encrypted private keys (`pkPassword: auto` or an explicit password) work the same way for
+  ECDSA keys as for RSA keys.
+
+See `tests/elliptic-curves-test.yml` for a complete example.
 
 ## Building from Source
 

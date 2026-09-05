@@ -1,6 +1,8 @@
 package cert
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -535,6 +537,239 @@ func TestLoadCAFromPEM(t *testing.T) {
 
 			if !caInfo.Certificate.IsCA {
 				t.Error("Expected certificate to be marked as CA")
+			}
+		})
+	}
+}
+
+func TestGenerateCAWithKeySettingsEllipticCurve(t *testing.T) {
+	tempDir := t.TempDir()
+	log := logger.New(false)
+	cm := NewCertificateManager(tempDir, 16, log)
+
+	caInfo, err := cm.GenerateCAWithKeySettings(
+		"CN=EC Test CA,O=Test Org,C=US",
+		2048,
+		365,
+		"ec-test-ca",
+		"none",
+		"",
+		KeyGenSettings{UseEllipticCurves: true, EllipticCurve: "P-384"},
+	)
+	if err != nil {
+		t.Fatalf("GenerateCAWithKeySettings() error = %v", err)
+	}
+
+	ecKey, ok := caInfo.PrivateKey.(*ecdsa.PrivateKey)
+	if !ok {
+		t.Fatalf("Expected ECDSA private key, got %T", caInfo.PrivateKey)
+	}
+	if ecKey.Curve != elliptic.P384() {
+		t.Errorf("Expected P-384 curve, got %s", ecKey.Curve.Params().Name)
+	}
+
+	// Verify the certificate itself reports an EC public key on P-384
+	block, _ := pem.Decode(caInfo.CertPEM)
+	if block == nil {
+		t.Fatal("Failed to decode certificate PEM")
+	}
+	parsedCert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("Failed to parse certificate: %v", err)
+	}
+	pub, ok := parsedCert.PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		t.Fatalf("Expected certificate public key to be ECDSA, got %T", parsedCert.PublicKey)
+	}
+	if pub.Curve != elliptic.P384() {
+		t.Errorf("Expected certificate public key curve P-384, got %s", pub.Curve.Params().Name)
+	}
+}
+
+func TestGenerateCAWithKeySettingsDefaultsToRSA(t *testing.T) {
+	tempDir := t.TempDir()
+	log := logger.New(false)
+	cm := NewCertificateManager(tempDir, 16, log)
+
+	// Zero-value KeyGenSettings (UseEllipticCurves: false) must preserve
+	// existing RSA behavior for backward compatibility.
+	caInfo, err := cm.GenerateCAWithKeySettings(
+		"CN=RSA Test CA,O=Test Org,C=US",
+		2048,
+		365,
+		"rsa-test-ca",
+		"none",
+		"",
+		KeyGenSettings{},
+	)
+	if err != nil {
+		t.Fatalf("GenerateCAWithKeySettings() error = %v", err)
+	}
+
+	if _, ok := caInfo.PrivateKey.(*rsa.PrivateKey); !ok {
+		t.Fatalf("Expected RSA private key when UseEllipticCurves is false, got %T", caInfo.PrivateKey)
+	}
+}
+
+func TestGenerateCAEncryptedECKeyRoundTrip(t *testing.T) {
+	tempDir := t.TempDir()
+	log := logger.New(false)
+	cm := NewCertificateManager(tempDir, 16, log)
+
+	password := "super-secret-passw0rd"
+	caInfo, err := cm.GenerateCAWithKeySettings(
+		"CN=EC Encrypted CA,O=Test Org,C=US",
+		2048,
+		365,
+		"ec-encrypted-ca",
+		password,
+		"",
+		KeyGenSettings{UseEllipticCurves: true, EllipticCurve: "P-384"},
+	)
+	if err != nil {
+		t.Fatalf("GenerateCAWithKeySettings() error = %v", err)
+	}
+	if caInfo.Password != password {
+		t.Fatalf("Expected password %q, got %q", password, caInfo.Password)
+	}
+
+	// Confirm the key was actually encrypted
+	block, _ := pem.Decode(caInfo.KeyPEM)
+	if block == nil {
+		t.Fatal("Failed to decode key PEM")
+	}
+	if block.Type != "ENCRYPTED PRIVATE KEY" {
+		t.Fatalf("Expected ENCRYPTED PRIVATE KEY block, got %s", block.Type)
+	}
+
+	// Round-trip: load the CA back using the password and verify it's
+	// still a usable ECDSA key that can sign a certificate.
+	loadedCA, err := LoadCAFromPEMWithPassword(caInfo.CertPEM, caInfo.KeyPEM, password)
+	if err != nil {
+		t.Fatalf("LoadCAFromPEMWithPassword() error = %v", err)
+	}
+
+	loadedECKey, ok := loadedCA.PrivateKey.(*ecdsa.PrivateKey)
+	if !ok {
+		t.Fatalf("Expected loaded private key to be ECDSA, got %T", loadedCA.PrivateKey)
+	}
+	if loadedECKey.Curve != elliptic.P384() {
+		t.Errorf("Expected loaded key curve P-384, got %s", loadedECKey.Curve.Params().Name)
+	}
+
+	// Use the loaded CA to sign a node certificate, proving the key is functional.
+	err = cm.GenerateNodeCertificateWithKeySettings(
+		loadedCA,
+		"CN=ec-node.example.com,O=Test Org,C=US",
+		[]string{"ec-node.example.com"},
+		[]string{"127.0.0.1"},
+		365,
+		"ec-node-from-loaded-ca",
+		"none",
+		"",
+		KeyGenSettings{UseEllipticCurves: true, EllipticCurve: "P-384"},
+	)
+	if err != nil {
+		t.Fatalf("GenerateNodeCertificateWithKeySettings() with loaded EC CA error = %v", err)
+	}
+}
+
+func TestGenerateNodeAndClientCertificatesWithEllipticCurves(t *testing.T) {
+	tempDir := t.TempDir()
+	log := logger.New(false)
+	cm := NewCertificateManager(tempDir, 16, log)
+
+	caInfo, err := cm.GenerateCAWithKeySettings(
+		"CN=EC Test CA,O=Test Org,C=US",
+		2048,
+		365,
+		"ec-ca-for-leaf",
+		"none",
+		"",
+		KeyGenSettings{UseEllipticCurves: true, EllipticCurve: "P-384"},
+	)
+	if err != nil {
+		t.Fatalf("Failed to create EC CA: %v", err)
+	}
+
+	keySettings := KeyGenSettings{UseEllipticCurves: true, EllipticCurve: "P-384"}
+
+	if err := cm.GenerateNodeCertificateWithKeySettings(
+		caInfo, "CN=ec-node.example.com,O=Test Org,C=US",
+		[]string{"ec-node.example.com"}, []string{"127.0.0.1"},
+		365, "ec-node", "none", "", keySettings,
+	); err != nil {
+		t.Fatalf("GenerateNodeCertificateWithKeySettings() error = %v", err)
+	}
+
+	nodeKeyPEM, err := os.ReadFile(filepath.Join(tempDir, "ec-node.key"))
+	if err != nil {
+		t.Fatalf("Failed to read node key file: %v", err)
+	}
+	block, _ := pem.Decode(nodeKeyPEM)
+	if block == nil {
+		t.Fatal("Failed to decode node key PEM")
+	}
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		t.Fatalf("Failed to parse node private key: %v", err)
+	}
+	if _, ok := key.(*ecdsa.PrivateKey); !ok {
+		t.Fatalf("Expected node private key to be ECDSA, got %T", key)
+	}
+
+	if err := cm.GenerateClientCertificateWithKeySettings(
+		caInfo, "CN=ec-client,O=Test Org,C=US", 365, "ec-client", "none", keySettings,
+	); err != nil {
+		t.Fatalf("GenerateClientCertificateWithKeySettings() error = %v", err)
+	}
+
+	clientKeyPEM, err := os.ReadFile(filepath.Join(tempDir, "ec-client.key"))
+	if err != nil {
+		t.Fatalf("Failed to read client key file: %v", err)
+	}
+	block, _ = pem.Decode(clientKeyPEM)
+	if block == nil {
+		t.Fatal("Failed to decode client key PEM")
+	}
+	key, err = x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		t.Fatalf("Failed to parse client private key: %v", err)
+	}
+	if _, ok := key.(*ecdsa.PrivateKey); !ok {
+		t.Fatalf("Expected client private key to be ECDSA, got %T", key)
+	}
+}
+
+func TestCurveByName(t *testing.T) {
+	tests := []struct {
+		name      string
+		curveName string
+		expected  elliptic.Curve
+		expectErr bool
+	}{
+		{name: "empty_defaults_to_p384", curveName: "", expected: elliptic.P384()},
+		{name: "p224", curveName: "P-224", expected: elliptic.P224()},
+		{name: "p256", curveName: "P-256", expected: elliptic.P256()},
+		{name: "p384", curveName: "P-384", expected: elliptic.P384()},
+		{name: "p521", curveName: "P-521", expected: elliptic.P521()},
+		{name: "unsupported", curveName: "secp256k1", expectErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			curve, err := curveByName(tt.curveName)
+			if tt.expectErr {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if curve != tt.expected {
+				t.Errorf("Expected curve %s, got %s", tt.expected.Params().Name, curve.Params().Name)
 			}
 		})
 	}

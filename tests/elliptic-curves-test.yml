@@ -1,0 +1,38 @@
+# Test configuration for EC (ECDSA) certificate generation.
+# Exercises the useEllipticCurves config option end-to-end: root CA,
+# intermediate CA, node certs (transport + HTTP), and client certs should
+# all be generated with ECDSA P-384 keys instead of RSA.
+
+ca:
+  root:
+    dn: CN=root.ca.example.com,OU=CA,O=Example Com\, Inc.,DC=example,DC=com
+    validityDays: 3650
+    pkPassword: auto
+    file: root-ca
+
+  intermediate:
+    dn: CN=signing.ca.example.com,OU=CA,O=Example Com\, Inc.,DC=example,DC=com
+    validityDays: 3650
+    pkPassword: auto
+
+defaults:
+  validityDays: 3650
+  pkPassword: auto
+  generatedPasswordLength: 12
+  httpsEnabled: true
+  reuseTransportCertificatesForHttp: false
+  verifyHostnames: false
+  resolveHostnames: false
+  useEllipticCurves: true
+  ellipticCurve: P-384
+
+nodes:
+  - name: node1
+    dn: CN=node1.example.com,OU=Ops,O=Example Com\, Inc.,DC=example,DC=com
+    dns: node1.example.com
+    ip: 10.0.2.1
+
+clients:
+  - name: admin
+    dn: CN=admin.example.com,OU=Ops,O=Example Com\, Inc.,DC=example,DC=com
+    admin: true

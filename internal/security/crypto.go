@@ -67,6 +67,23 @@ func ValidateKeySize(keySize int) error {
 	return nil
 }
 
+// SupportedEllipticCurves lists the elliptic curve names accepted for the
+// ellipticCurve configuration option, matching the curve names supported by
+// the Java Search Guard TLS Tool that map onto Go's stdlib crypto/elliptic
+// curves.
+var SupportedEllipticCurves = []string{"P-224", "P-256", "P-384", "P-521"}
+
+// ValidateEllipticCurve ensures the configured elliptic curve name is one of
+// the curves supported by this tool.
+func ValidateEllipticCurve(curve string) error {
+	for _, supported := range SupportedEllipticCurves {
+		if curve == supported {
+			return nil
+		}
+	}
+	return fmt.Errorf("unsupported elliptic curve %q, supported curves: %s", curve, strings.Join(SupportedEllipticCurves, ", "))
+}
+
 // ValidateValidityPeriod ensures certificate validity period is reasonable
 func ValidateValidityPeriod(days int) error {
 	config := DefaultSecurityConfig()

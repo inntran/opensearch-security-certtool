@@ -49,7 +49,7 @@ func (v *Validator) ValidateConfig(cfg *config.Config) ValidationResult {
 	var warnings []ValidationWarning
 
 	// Validate CA configuration
-	if errs, warns := v.validateCAConfig(cfg.CA); len(errs) > 0 || len(warns) > 0 {
+	if errs, warns := v.validateCAConfig(cfg.CA, cfg.Defaults.UseEllipticCurves); len(errs) > 0 || len(warns) > 0 {
 		validationErrors = append(validationErrors, errs...)
 		warnings = append(warnings, warns...)
 	}
@@ -85,19 +85,19 @@ func (v *Validator) ValidateConfig(cfg *config.Config) ValidationResult {
 	}
 }
 
-func (v *Validator) validateCAConfig(ca config.CAConfig) ([]ValidationError, []ValidationWarning) {
+func (v *Validator) validateCAConfig(ca config.CAConfig, useEllipticCurves bool) ([]ValidationError, []ValidationWarning) {
 	var validationErrors []ValidationError
 	var warnings []ValidationWarning
 
 	// Validate root CA
-	if errs, warns := v.validateCertConfig(ca.Root, "ca.root"); len(errs) > 0 || len(warns) > 0 {
+	if errs, warns := v.validateCertConfig(ca.Root, "ca.root", useEllipticCurves); len(errs) > 0 || len(warns) > 0 {
 		validationErrors = append(validationErrors, errs...)
 		warnings = append(warnings, warns...)
 	}
 
 	// Validate intermediate CA if present
 	if ca.Intermediate.DN != "" {
-		if errs, warns := v.validateCertConfig(ca.Intermediate, "ca.intermediate"); len(errs) > 0 || len(warns) > 0 {
+		if errs, warns := v.validateCertConfig(ca.Intermediate, "ca.intermediate", useEllipticCurves); len(errs) > 0 || len(warns) > 0 {
 			validationErrors = append(validationErrors, errs...)
 			warnings = append(warnings, warns...)
 		}
@@ -117,7 +117,7 @@ func (v *Validator) validateCAConfig(ca config.CAConfig) ([]ValidationError, []V
 }
 
 func (v *Validator) validateCertConfig(
-	cert config.CertConfig, fieldPrefix string,
+	cert config.CertConfig, fieldPrefix string, useEllipticCurves bool,
 ) ([]ValidationError, []ValidationWarning) {
 	var validationErrors []ValidationError
 	var warnings []ValidationWarning
@@ -140,8 +140,8 @@ func (v *Validator) validateCertConfig(
 		}
 	}
 
-	// Validate key size
-	if cert.KeySize != 0 {
+	// Validate key size (not applicable when ECDSA keys are used)
+	if !useEllipticCurves && cert.KeySize != 0 {
 		if err := security.ValidateKeySize(cert.KeySize); err != nil {
 			validationErrors = append(validationErrors, ValidationError{
 				Field:    fieldPrefix + ".keysize",
@@ -187,6 +187,18 @@ func (v *Validator) validateCertConfig(
 		}
 	}
 
+	// Validate elliptic curve name, if set
+	if cert.EllipticCurve != "" {
+		if err := security.ValidateEllipticCurve(cert.EllipticCurve); err != nil {
+			validationErrors = append(validationErrors, ValidationError{
+				Field:    fieldPrefix + ".ellipticCurve",
+				Message:  err.Error(),
+				Value:    cert.EllipticCurve,
+				Severity: "error",
+			})
+		}
+	}
+
 	return validationErrors, warnings
 }
 
@@ -214,6 +226,18 @@ func (v *Validator) validateDefaults(defaults config.DefaultConfig) ([]Validatio
 			Value:    defaults.GeneratedPasswordLength,
 			Severity: "error",
 		})
+	}
+
+	// Validate default elliptic curve, if set
+	if defaults.EllipticCurve != "" {
+		if err := security.ValidateEllipticCurve(defaults.EllipticCurve); err != nil {
+			validationErrors = append(validationErrors, ValidationError{
+				Field:    "defaults.ellipticCurve",
+				Message:  err.Error(),
+				Value:    defaults.EllipticCurve,
+				Severity: "error",
+			})
+		}
 	}
 
 	// Validate nodes DN patterns
