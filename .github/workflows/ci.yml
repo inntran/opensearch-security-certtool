@@ -35,7 +35,7 @@ jobs:
         go tool cover -html=coverage.out -o coverage.html
 
     - name: Upload coverage report
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: coverage-report
         path: |
@@ -61,7 +61,7 @@ jobs:
       run: go mod download
 
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v8
+      uses: golangci/golangci-lint-action@v9
       with:
         version: latest
         args: --timeout=5m
@@ -84,7 +84,7 @@ jobs:
       continue-on-error: true
 
     - name: Upload Gosec scan results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: gosec-report
@@ -92,7 +92,7 @@ jobs:
         retention-days: 30
 
     - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
       with:
         scan-type: 'fs'
         scan-ref: '.'
@@ -100,7 +100,7 @@ jobs:
         output: 'trivy-results.json'
 
     - name: Upload Trivy scan results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: trivy-report
@@ -132,7 +132,7 @@ jobs:
       run: make build-all
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: binaries
         path: dist/
@@ -148,7 +148,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Download build artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: binaries
         path: dist/
@@ -173,7 +173,7 @@ jobs:
 
     - name: Upload test output
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: test-certificates
         path: test-output/
