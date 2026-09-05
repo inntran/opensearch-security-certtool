@@ -82,6 +82,22 @@ clients:
 ./opensearch-security-certtool ca --config config.yml --verbose
 ```
 
+## Workflow
+
+```mermaid
+flowchart TD
+    A[config.yml] --> B["ca / --create-ca"]
+    B --> C[Root CA]
+    B --> D[Intermediate CA<br/>optional]
+    C --> E["crt / --create-cert"]
+    D --> E
+    A --> E
+    E --> F[Node certificates]
+    E --> G[Client certificates]
+    E --> H[opensearch_config_snippet.yml]
+    E --> I[README files<br/>with passwords]
+```
+
 ## Commands
 
 The tool supports both short-form subcommands and long-form flags for compatibility:
