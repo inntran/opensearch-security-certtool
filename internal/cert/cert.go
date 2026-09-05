@@ -110,7 +110,9 @@ func (cm *CertificateManager) GenerateCA(
 func (cm *CertificateManager) GenerateCAWithConfig(
 	dn string, keySize int, validityDays int, filename string, passwordSetting string, crlDistributionPoints string,
 ) (*CAInfo, error) {
-	return cm.GenerateCAWithKeySettings(dn, keySize, validityDays, filename, passwordSetting, crlDistributionPoints, KeyGenSettings{})
+	return cm.GenerateCAWithKeySettings(
+		dn, keySize, validityDays, filename, passwordSetting, crlDistributionPoints, KeyGenSettings{},
+	)
 }
 
 // GenerateCAWithKeySettings creates a new certificate authority with CRL distribution points

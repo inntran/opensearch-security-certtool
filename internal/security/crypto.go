@@ -81,7 +81,9 @@ func ValidateEllipticCurve(curve string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("unsupported elliptic curve %q, supported curves: %s", curve, strings.Join(SupportedEllipticCurves, ", "))
+	return fmt.Errorf(
+		"unsupported elliptic curve %q, supported curves: %s", curve, strings.Join(SupportedEllipticCurves, ", "),
+	)
 }
 
 // ValidateValidityPeriod ensures certificate validity period is reasonable

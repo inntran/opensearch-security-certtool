@@ -85,7 +85,9 @@ func (v *Validator) ValidateConfig(cfg *config.Config) ValidationResult {
 	}
 }
 
-func (v *Validator) validateCAConfig(ca config.CAConfig, useEllipticCurves bool) ([]ValidationError, []ValidationWarning) {
+func (v *Validator) validateCAConfig(
+	ca config.CAConfig, useEllipticCurves bool,
+) ([]ValidationError, []ValidationWarning) {
 	var validationErrors []ValidationError
 	var warnings []ValidationWarning
 
@@ -97,7 +99,8 @@ func (v *Validator) validateCAConfig(ca config.CAConfig, useEllipticCurves bool)
 
 	// Validate intermediate CA if present
 	if ca.Intermediate.DN != "" {
-		if errs, warns := v.validateCertConfig(ca.Intermediate, "ca.intermediate", useEllipticCurves); len(errs) > 0 || len(warns) > 0 {
+		errs, warns := v.validateCertConfig(ca.Intermediate, "ca.intermediate", useEllipticCurves)
+		if len(errs) > 0 || len(warns) > 0 {
 			validationErrors = append(validationErrors, errs...)
 			warnings = append(warnings, warns...)
 		}
@@ -122,84 +125,128 @@ func (v *Validator) validateCertConfig(
 	var validationErrors []ValidationError
 	var warnings []ValidationWarning
 
-	// Validate DN
+	validationErrors = append(validationErrors, v.validateCertDN(cert, fieldPrefix)...)
+
+	keyErrs, keyWarns := v.validateCertKeySize(cert, fieldPrefix, useEllipticCurves)
+	validationErrors = append(validationErrors, keyErrs...)
+	warnings = append(warnings, keyWarns...)
+
+	validityErrs, validityWarns := v.validateCertValidityDays(cert, fieldPrefix)
+	validationErrors = append(validationErrors, validityErrs...)
+	warnings = append(warnings, validityWarns...)
+
+	validationErrors = append(validationErrors, v.validateCertPassword(cert, fieldPrefix)...)
+	validationErrors = append(validationErrors, v.validateCertEllipticCurve(cert, fieldPrefix)...)
+
+	return validationErrors, warnings
+}
+
+func (v *Validator) validateCertDN(cert config.CertConfig, fieldPrefix string) []ValidationError {
 	if cert.DN == "" {
-		validationErrors = append(validationErrors, ValidationError{
+		return []ValidationError{{
 			Field:    fieldPrefix + ".dn",
 			Message:  "DN is required",
 			Severity: "error",
-		})
-	} else {
-		if err := security.ValidateDN(cert.DN); err != nil {
-			validationErrors = append(validationErrors, ValidationError{
-				Field:    fieldPrefix + ".dn",
-				Message:  fmt.Sprintf("Invalid DN: %s", err.Error()),
-				Value:    cert.DN,
-				Severity: "error",
-			})
-		}
+		}}
 	}
 
-	// Validate key size (not applicable when ECDSA keys are used)
-	if !useEllipticCurves && cert.KeySize != 0 {
-		if err := security.ValidateKeySize(cert.KeySize); err != nil {
-			validationErrors = append(validationErrors, ValidationError{
-				Field:    fieldPrefix + ".keysize",
-				Message:  err.Error(),
-				Value:    cert.KeySize,
-				Severity: "error",
-			})
-		} else if cert.KeySize < 4096 {
-			warnings = append(warnings, ValidationWarning{
-				Field:   fieldPrefix + ".keysize",
-				Message: "Consider using 4096-bit keys for enhanced security",
-				Value:   cert.KeySize,
-			})
-		}
+	if err := security.ValidateDN(cert.DN); err != nil {
+		return []ValidationError{{
+			Field:    fieldPrefix + ".dn",
+			Message:  fmt.Sprintf("Invalid DN: %s", err.Error()),
+			Value:    cert.DN,
+			Severity: "error",
+		}}
 	}
 
-	// Validate validity period
-	if cert.ValidityDays != 0 {
-		if err := security.ValidateValidityPeriod(cert.ValidityDays); err != nil {
-			validationErrors = append(validationErrors, ValidationError{
-				Field:    fieldPrefix + ".validityDays",
-				Message:  err.Error(),
-				Value:    cert.ValidityDays,
-				Severity: "error",
-			})
-		} else if cert.ValidityDays > 3650 {
-			warnings = append(warnings, ValidationWarning{
-				Field:   fieldPrefix + ".validityDays",
-				Message: "Long validity periods may pose security risks",
-				Value:   cert.ValidityDays,
-			})
-		}
+	return nil
+}
+
+func (v *Validator) validateCertKeySize(
+	cert config.CertConfig, fieldPrefix string, useEllipticCurves bool,
+) ([]ValidationError, []ValidationWarning) {
+	if useEllipticCurves || cert.KeySize == 0 {
+		return nil, nil
 	}
 
-	// Validate password settings
-	if cert.PKPassword != "" && cert.PKPassword != "auto" && cert.PKPassword != "none" {
-		if len(cert.PKPassword) < v.securityConfig.MinPasswordLength {
-			validationErrors = append(validationErrors, ValidationError{
-				Field:    fieldPrefix + ".pkPassword",
-				Message:  fmt.Sprintf("Password must be at least %d characters", v.securityConfig.MinPasswordLength),
-				Severity: "error",
-			})
-		}
+	if err := security.ValidateKeySize(cert.KeySize); err != nil {
+		return []ValidationError{{
+			Field:    fieldPrefix + ".keysize",
+			Message:  err.Error(),
+			Value:    cert.KeySize,
+			Severity: "error",
+		}}, nil
 	}
 
-	// Validate elliptic curve name, if set
-	if cert.EllipticCurve != "" {
-		if err := security.ValidateEllipticCurve(cert.EllipticCurve); err != nil {
-			validationErrors = append(validationErrors, ValidationError{
-				Field:    fieldPrefix + ".ellipticCurve",
-				Message:  err.Error(),
-				Value:    cert.EllipticCurve,
-				Severity: "error",
-			})
-		}
+	if cert.KeySize < 4096 {
+		return nil, []ValidationWarning{{
+			Field:   fieldPrefix + ".keysize",
+			Message: "Consider using 4096-bit keys for enhanced security",
+			Value:   cert.KeySize,
+		}}
 	}
 
-	return validationErrors, warnings
+	return nil, nil
+}
+
+func (v *Validator) validateCertValidityDays(
+	cert config.CertConfig, fieldPrefix string,
+) ([]ValidationError, []ValidationWarning) {
+	if cert.ValidityDays == 0 {
+		return nil, nil
+	}
+
+	if err := security.ValidateValidityPeriod(cert.ValidityDays); err != nil {
+		return []ValidationError{{
+			Field:    fieldPrefix + ".validityDays",
+			Message:  err.Error(),
+			Value:    cert.ValidityDays,
+			Severity: "error",
+		}}, nil
+	}
+
+	if cert.ValidityDays > 3650 {
+		return nil, []ValidationWarning{{
+			Field:   fieldPrefix + ".validityDays",
+			Message: "Long validity periods may pose security risks",
+			Value:   cert.ValidityDays,
+		}}
+	}
+
+	return nil, nil
+}
+
+func (v *Validator) validateCertPassword(cert config.CertConfig, fieldPrefix string) []ValidationError {
+	if cert.PKPassword == "" || cert.PKPassword == "auto" || cert.PKPassword == "none" {
+		return nil
+	}
+
+	if len(cert.PKPassword) < v.securityConfig.MinPasswordLength {
+		return []ValidationError{{
+			Field:    fieldPrefix + ".pkPassword",
+			Message:  fmt.Sprintf("Password must be at least %d characters", v.securityConfig.MinPasswordLength),
+			Severity: "error",
+		}}
+	}
+
+	return nil
+}
+
+func (v *Validator) validateCertEllipticCurve(cert config.CertConfig, fieldPrefix string) []ValidationError {
+	if cert.EllipticCurve == "" {
+		return nil
+	}
+
+	if err := security.ValidateEllipticCurve(cert.EllipticCurve); err != nil {
+		return []ValidationError{{
+			Field:    fieldPrefix + ".ellipticCurve",
+			Message:  err.Error(),
+			Value:    cert.EllipticCurve,
+			Severity: "error",
+		}}
+	}
+
+	return nil
 }
 
 func (v *Validator) validateDefaults(defaults config.DefaultConfig) ([]ValidationError, []ValidationWarning) {
