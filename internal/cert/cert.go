@@ -551,18 +551,20 @@ func parseDistinguishedName(dn string) (pkix.Name, error) {
 	return name, nil
 }
 
-// encryptPrivateKey encrypts a private key with a password using PKCS#8
+// encryptPrivateKey encrypts a PKCS#8 private key with a password, producing
+// a standard PKCS#8 EncryptedPrivateKeyInfo (PBES2/PBKDF2 + AES-256-CBC) PEM
+// block, so the result is readable by standard PKCS#8 consumers (OpenSSL,
+// Java, the OpenSearch security plugin).
 func (cm *CertificateManager) encryptPrivateKey(keyDER []byte, password string) ([]byte, error) {
-	// Use PKCS#8 encryption similar to the Java version
-	// This uses PBE-SHA1-3DES encryption
-	encryptedKey, err := x509.EncryptPEMBlock(
-		rand.Reader, "ENCRYPTED PRIVATE KEY", keyDER, []byte(password), x509.PEMCipherAES256,
-	)
+	encryptedDER, err := encryptPKCS8PrivateKeyInfo(keyDER, []byte(password))
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt private key: %w", err)
 	}
 
-	return pem.EncodeToMemory(encryptedKey), nil
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "ENCRYPTED PRIVATE KEY",
+		Bytes: encryptedDER,
+	}), nil
 }
 
 // GetPasswords returns the password collection

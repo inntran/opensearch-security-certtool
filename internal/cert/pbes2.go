@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/des"  // #nosec G502 -- decrypting legacy PBES2 keys that use 3DES-CBC, not producing new ciphertext
+	"crypto/rand"
 	"crypto/sha1" // #nosec G505 -- decrypting legacy PBES2 keys that use PBKDF2-HMAC-SHA1, not producing new signatures
 	"crypto/sha256"
 	"encoding/asn1"
@@ -12,6 +13,10 @@ import (
 
 	"golang.org/x/crypto/pbkdf2"
 )
+
+// pbes2EncryptIterationCount is the PBKDF2 iteration count used when
+// encrypting new keys. It matches common OpenSSL/Java defaults for PBES2.
+const pbes2EncryptIterationCount = 2048
 
 // PKCS#5/PKCS#8 OIDs relevant to decrypting an EncryptedPrivateKeyInfo
 // (RFC 8018 PBES2/PBKDF2, RFC 8018 Appendix B encryption schemes).
@@ -116,6 +121,97 @@ func decryptPKCS8EncryptedPrivateKeyInfo(der []byte, password []byte) ([]byte, e
 	cipher.NewCBCDecrypter(block, iv).CryptBlocks(decrypted, info.EncryptedData)
 
 	return unpadPKCS7(decrypted, block.BlockSize())
+}
+
+// encryptPKCS8PrivateKeyInfo encrypts DER-encoded PKCS#8 PrivateKeyInfo
+// content into a standard PKCS#8 EncryptedPrivateKeyInfo (RFC 5958),
+// using PBES2 (RFC 8018) with PBKDF2-HMAC-SHA256 key derivation and
+// AES-256-CBC encryption. This matches the format produced by OpenSSL and
+// Java tooling, so keys generated here can be read by other standard
+// PKCS#8 consumers (e.g. the OpenSearch security plugin).
+func encryptPKCS8PrivateKeyInfo(der []byte, password []byte) ([]byte, error) {
+	const keyLen = 32 // AES-256
+
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return nil, fmt.Errorf("failed to generate salt: %w", err)
+	}
+
+	iv := make([]byte, aes.BlockSize)
+	if _, err := rand.Read(iv); err != nil {
+		return nil, fmt.Errorf("failed to generate IV: %w", err)
+	}
+
+	key := pbkdf2.Key(password, salt, pbes2EncryptIterationCount, keyLen, sha256.New)
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize cipher: %w", err)
+	}
+
+	padded := padPKCS7(der, block.BlockSize())
+	encrypted := make([]byte, len(padded))
+	cipher.NewCBCEncrypter(block, iv).CryptBlocks(encrypted, padded)
+
+	ivParam, err := asn1.Marshal(iv)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal IV: %w", err)
+	}
+
+	kdfParams, err := asn1.Marshal(pbkdf2Params{
+		Salt:           salt,
+		IterationCount: pbes2EncryptIterationCount,
+		KeyLength:      keyLen,
+		PRF:            algorithmIdentifier{Algorithm: oidHMACWithSHA256, Parameters: asn1.RawValue{FullBytes: rawNull}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal PBKDF2 parameters: %w", err)
+	}
+
+	pbes2ParamsDER, err := asn1.Marshal(pbes2Params{
+		KeyDerivationFunc: algorithmIdentifier{
+			Algorithm:  oidPBKDF2,
+			Parameters: asn1.RawValue{FullBytes: kdfParams},
+		},
+		EncryptionScheme: algorithmIdentifier{
+			Algorithm:  oidAES256CBC,
+			Parameters: asn1.RawValue{FullBytes: ivParam},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal PBES2 parameters: %w", err)
+	}
+
+	info := pkcs8EncryptedPrivateKeyInfo{
+		Algo: algorithmIdentifier{
+			Algorithm:  oidPBES2,
+			Parameters: asn1.RawValue{FullBytes: pbes2ParamsDER},
+		},
+		EncryptedData: encrypted,
+	}
+
+	out, err := asn1.Marshal(info)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal EncryptedPrivateKeyInfo: %w", err)
+	}
+
+	return out, nil
+}
+
+// rawNull is the DER encoding of ASN.1 NULL, used as the (unused)
+// parameters field of the HMAC-SHA256 AlgorithmIdentifier.
+var rawNull = []byte{0x05, 0x00}
+
+// padPKCS7 applies PKCS#7 padding.
+func padPKCS7(data []byte, blockSize int) []byte {
+	padLen := blockSize - len(data)%blockSize
+	padByte := byte(padLen) // #nosec G115 -- padLen is always in [1, blockSize], well within byte range
+	padded := make([]byte, len(data)+padLen)
+	copy(padded, data)
+	for i := len(data); i < len(padded); i++ {
+		padded[i] = padByte
+	}
+	return padded
 }
 
 // cipherForScheme returns the required key length and a constructor for the

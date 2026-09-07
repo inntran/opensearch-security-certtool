@@ -125,6 +125,40 @@ func TestGenerateCA(t *testing.T) {
 	}
 }
 
+func TestGenerateCAEncryptedKeyIsStandardPKCS8(t *testing.T) {
+	tempDir := t.TempDir()
+	log := logger.New(false)
+	cm := NewCertificateManager(tempDir, 16, log)
+
+	caInfo, err := cm.GenerateCA("CN=Test CA,O=Test Org,C=US", 2048, 365, "test-ca", "mypassword123")
+	if err != nil {
+		t.Fatalf("GenerateCA() error = %v", err)
+	}
+
+	keyBlock, _ := pem.Decode(caInfo.KeyPEM)
+	if keyBlock == nil {
+		t.Fatal("Failed to decode key PEM")
+	}
+
+	if keyBlock.Type != "ENCRYPTED PRIVATE KEY" {
+		t.Fatalf("Expected PEM type ENCRYPTED PRIVATE KEY, got %s", keyBlock.Type)
+	}
+
+	if _, hasDEKInfo := keyBlock.Headers["DEK-Info"]; hasDEKInfo {
+		t.Error("Encrypted key must not use legacy RFC1423 PEM headers (DEK-Info); expected standard PKCS8 ASN.1 encoding")
+	}
+
+	// The PEM body must be a valid ASN.1 EncryptedPrivateKeyInfo structure,
+	// decryptable via the standard PBES2 path (as produced by OpenSSL/Java).
+	decryptedDER, err := decryptPKCS8EncryptedPrivateKeyInfo(keyBlock.Bytes, []byte("mypassword123"))
+	if err != nil {
+		t.Fatalf("Failed to decrypt generated key as standard PKCS8: %v", err)
+	}
+	if _, err := x509.ParsePKCS8PrivateKey(decryptedDER); err != nil {
+		t.Fatalf("Decrypted key is not valid PKCS8: %v", err)
+	}
+}
+
 func TestGenerateCAWithCRLDistributionPoints(t *testing.T) {
 	tempDir := t.TempDir()
 	log := logger.New(false)
