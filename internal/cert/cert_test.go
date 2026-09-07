@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -511,6 +512,153 @@ PhSGuwH3Z/vgOkB6NMThH18VlOFhIwbc8llwlNUEJbKU9EKVzAdPTHD0rByim2Xw
 Glqx3Upbgy67OT/Txiz7A0cqPwnNfmMUX5Uvjef+qIyJmuHvXqIEUBU=
 -----END ENCRYPTED PRIVATE KEY-----
 `
+
+// testLegacyPKCS12PBEEncryptedKeyPEM is a real key produced by
+// `openssl pkcs8 -topk8 -v1 PBE-SHA1-3DES`, encrypted with password
+// "testpassword123". This is the legacy scheme Java's SunJCE provider uses
+// for PKCS#8 keys (pbeWithSHA1And3-KeyTripleDES-CBC) instead of PBES2 -
+// this tool intentionally does not decrypt it, but should explain why and
+// how to convert it.
+const testLegacyPKCS12PBEEncryptedKeyPEM = `-----BEGIN ENCRYPTED PRIVATE KEY-----
+MIIE6jAcBgoqhkiG9w0BDAEDMA4ECGuVcwPHc8SzAgIIAASCBMg61Gs3hB4Tvei6
+LtOGj1VVb3+akyB79fK+BcBSOLRjxWHipfblyOcza/xUtuzO0/pMQZ5328qz3VI6
+e/V9+srXJgsC1aZSlw8fXE1/Jk//4a+Y3HmgAglFx1cZ1fBOcrNqAOxTBmljh3aC
+ivkjF5qIg+bID6FHpcZ9hgzhfIp2akLuPyw2iJnFoq3KQNetoLup3OXcyrVB+NFq
+EfUWREFZr56zih3apBZbnhV9WViqRD1IFxU0Fv7UL08II4UAiEvv+Emmy11sGfeM
+59Qj6DZFklh/whh6XPZETxUaa9EXzD5PmQzGPlTPsOa1ypvWfdj1uXJJA6lHmjhv
+oikrWEcpe0ROaHA+7eeTLs9qL7G4cqOoqQkC49diVksYEis/OdRxdYpXpFF5m3S4
+zqtR5gUWvlhCe8Ac4V5tLgGmf+5Qz4qzLibL+PyR9S5/UAzpr/huEA6GZ+v69CmP
+r2gAXzQtpVNE7lgt9AtOiJ/mwA/J5oCXr4+JO+ptEs2ciJ1tPpGEomm3RbhYsmvF
+LUWqs2S7GOxsJpbGTgeUyXI5VdGkAhLDO/tTdT2YOTQuctImPusZoN6yzcWWXLqV
+RPxNlgnhkEK6UsJCTl3tjQpPT2D0wAI07Ta2dRmw4tHqohcb4/YAJEJw2njQU/00
+RpvRSXMR/LhqUMcTW90IdGaVhRtHQZNMshPPAxiw5hcqLFI9hX/sMlPzl6aR/rVk
+75RTlCqcnecS7eGG6859A75/OOjlfKWYih23gSTyOU9XI8JM8D6QthyXTV8i7nik
+ypcXoWt3XO/EVBORwr+EPcbBoTn6SqXMrhCgxIx0k2EmFcnXax8qvOsEkZOqYpsP
+v3Faho83t7Rvd8hOqbMuxvkx/12MYAxH5wWGH3+QZymyoAJyNdMUNTH/l3jpGBVk
+qTHqtBzOkE31LUadpzw7FGl8LvMu1B+HmSiaJ5ECDUDPhh7cjBAqA7WJozWMEU9v
+JizKiQr2jJWALtaCgRkxZfaW5AuLEhgIQzNiW8asdnDgZmEczuLglgFIMJtOEJjE
+xDzEQ7G9bAS49OjFebbQSd2yLxFP4WhExVCdzjfmbttTS5hBvsZxQ8uFVZOqh43E
+QIATjTqvj7mSyTX1IjcOeQDJNaQN9IZ/qZ3v/OrB4WKTgVIdTomQJwqipnjYFnVB
+iPJsHdbrvQC0fvaZeLPLDAa6uvUUAmcDslPSqjl87QEV5hi+8lKpbcY5s5xwkqhU
+1SAVFNhzhaizNWxyNYfhBbZISi6wx43d/FJeVRhLoDsgUXY4mHSSnljPuNeW6E+d
+YYRL59LJGgHBNop4ekoxUu0JSGGXe2kLe8i72ZIvmxj0MfsXaN5KzIRkujCY1Rx0
+qG3hj0XmLHjnJa2qZRjJF0Y2S0xDnW59LsMxcH//l0H0ferLUORo41l1ySB2pBtB
+14SDRjLP+NpIlwg/mdgBaSc0hqYEdyRoZ7OBhShZNTGAuUKsbQd3GB9LOGrtoOQI
+i2z1ucwdlGJ0wVwrvNpkQJwkdD/YyOtQNMQvIOH1pF2dRdonlgWiUmFJ43FwBFAW
+vFqmi5WErcnY97n43Sz1GvMcZBGrZVZZ+jBouXACRLcCtcigd8QCZCKhlv22ynSa
+/cpPyTIRn3RNf+MDi98=
+-----END ENCRYPTED PRIVATE KEY-----
+`
+
+// TestLoadCAFromPEM_LegacyPKCS12PBE verifies that loading a key encrypted
+// with the legacy pbeWithSHA1And3-KeyTripleDES-CBC scheme (unsupported by
+// this tool, and distinct from PBES2) fails with actionable guidance
+// pointing the user at an openssl conversion command, rather than a
+// generic decrypt failure.
+func TestLoadCAFromPEM_LegacyPKCS12PBE(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate private key: %v", err)
+	}
+	template := x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		t.Fatalf("Failed to create certificate: %v", err)
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+
+	_, err = LoadCAFromPEMWithPassword(certPEM, []byte(testLegacyPKCS12PBEEncryptedKeyPEM), "testpassword123")
+	if err == nil {
+		t.Fatal("Expected error loading legacy PKCS12-PBE encrypted key, got none")
+	}
+
+	msg := err.Error()
+	if !strings.Contains(msg, "pbeWithSHA1And3-KeyTripleDES-CBC") && !strings.Contains(msg, "not supported") {
+		t.Errorf("Expected error to explain the unsupported legacy scheme, got: %v", err)
+	}
+	if !strings.Contains(msg, "openssl pkcs8") {
+		t.Errorf("Expected error to include an openssl conversion command, got: %v", err)
+	}
+}
+
+// testLegacyKeyConvertedToPBES2PEM is testLegacyPKCS12PBEEncryptedKeyPEM
+// after running the two commands documented in pbes2ConversionHelp (and by
+// scripts/convert-legacy-ca-key.sh):
+//
+//	openssl pkcs8 -in old-key.pem -out decrypted-key.pem
+//	openssl pkcs8 -topk8 -v2 aes-256-cbc -v2prf hmacWithSHA256 -in decrypted-key.pem -out new-key.pem
+//
+// re-encrypted with password "newpassword456". This proves the documented
+// conversion path actually produces a key this tool can load.
+const testLegacyKeyConvertedToPBES2PEM = `-----BEGIN ENCRYPTED PRIVATE KEY-----
+MIIFNTBfBgkqhkiG9w0BBQ0wUjAxBgkqhkiG9w0BBQwwJAQQhI+FxfRire1gsndp
+UUp8NgICCAAwDAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEDL20GAT6LxeJiKo
+/HpXkeMEggTQ6rulyfVHWo3eJNNajhygs9ACBg8I+BEehoZnuIOPSqEUnJxbxv0q
+zwlRKwaTvokUWdfhNlmIV41KfWOkAhYNq1SXhnNgzR+3iO6YWZQMvtxJrPN3NTB3
+G8+0t5H5I+li+ILls8YPMYFWUZWTAd4dg/4Bm+dHtrHp2Dl+WWwHW9gUo+Bs4COB
+BE9sI0JOsRtDsvXh04QTTDq4PT/K7L08Btlun5smsQFSJrlhjwl0ZjcA6HvCooXE
+XrqwdrBVQArbOtxBdE6fttRJEaEHs8LSHGCFXg4+NPEpeucaIBPFo5vKCnNB6lCH
+rjusQKNy6Kt+v0OR1hbAN3AbGcKPgFJ5zEkddoJxAw4UtZ3DVMoCPvrXJhvPKzks
+IHx8N2GJr+TAAI2DAQd2ci7CIRxlMlLECrTY4Rd4Q9gPQ2X1yQ3PLyzG9W9VUnUO
+sM4/2nUiXPuZ0YltX7IDOjAqFiBpZkPldId7Y3A9cczFQt2kfKoRSLzhUe0tzsr3
+6Ep3IbUgFi1YlI8g8X9WKT/1MFmlF98h7wGrGDVsGnhmL9dPZE+BveikDNsOsNdz
+bPhxuKwWbBMr7rvIIChBp6XrS7/cH+o+uBEp/wsfvWhVdlXIsMJhg9UrCfOnl9s1
+meiCGwYfPDIqXRK+uFH6OclAyrgCgfqaHb8xEx48jjc0M9Bkc71joXejVXEyTSlG
+A/YYUZzdowYVGhQgTLZoJuTDM6bHKYAa0E3W9xVBOUduzjcy9UyFiiG0CdBxfkUG
+UKd2KgtCBbfixctvx5SW6w20jnRg2rasJpiVddrN+TFYXU2gcoKLuQAPhSm2JPEO
+OlqLwH+7X7LrY4mr8wo/MNMZOqFWskow1Cu3oUHrVcGGP3XFqswunK6FBUlm6Bti
+vTqBFl5xdnFZG5xtRCaqJm4ZqM5WnNk6C8S4+bykMx6Ah/9kPFNGm5NMBZSuTnJV
+B+GhmsNHamgbz8icTB0DJq9ODOmQtvlPLwdy3s4uWhKKsJ6jtR2wiTni28cK6kSw
+3heaEbruTXY3w+477F/RP3dmpH0ubkN2kFk2ymLtIt8ybdiIu8IaeD5jcsAXtR34
+VZKc+dTbv81MfMChmRhyF6ydVmnNWKlIPj0BC59mg5ux/7zHTA7Spl/2nY2tXGAi
+RB/34hpp4+8GJ1gcFyivK+eQNSRJhTiznlmJyX+nFIrE9B2MvBkQ87vRIf2xLpNu
+uzDPrNNfGV680DlPyvkMDeBbe5UdcVljGOhAn27y5BYJjRMThEl6gu5sw0WnP+7h
+ZCw6V3cmRlvDZgyxKYkt+oUDFKL7qP5MBlIq8K1GHNYk31J2+qN/pQBI0o2sXSqY
+OQC6ge6nSFbTa4JA9pkxQqgHKXCLT/UKqI9lezfQdzJJ2uOmMfNsAgbi083bGBGx
+4gHAvopFJfzQXMSK6xgudayyquQgn6c7m7C/IPg1H3Q8mOVmMqr8YIejy7MXFmAc
+dBZsyJNY6gW9svx5jOLPZfeMa4WDRQuus/NfY8i2oPzhp049PuDUEZYcuBsyfvhZ
+TP+LnOJD/gEXK5ZyWQc8kvLus/hmSbqjs+jBr9sT53c1eIoSOvcU8OKrxa+bnHr/
+JPVUKTLB4ZXf6gykFw5IBVNaPwJxEwey/MEyty0kDeaNe9hPvr3vRHE=
+-----END ENCRYPTED PRIVATE KEY-----
+`
+
+// TestLoadCAFromPEM_LegacyKeyAfterConversion verifies that after following
+// the documented conversion (see pbes2ConversionHelp /
+// scripts/convert-legacy-ca-key.sh), the resulting key loads successfully.
+func TestLoadCAFromPEM_LegacyKeyAfterConversion(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate private key: %v", err)
+	}
+	template := x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		t.Fatalf("Failed to create certificate: %v", err)
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+
+	caInfo, err := LoadCAFromPEMWithPassword(certPEM, []byte(testLegacyKeyConvertedToPBES2PEM), "newpassword456")
+	if err != nil {
+		t.Fatalf("Failed to load converted key: %v", err)
+	}
+	if caInfo.PrivateKey == nil {
+		t.Fatal("Expected private key to be loaded")
+	}
+}
 
 // TestLoadCAFromPEM_PBES2 verifies decryption of a standard PKCS#8
 // ENCRYPTED PRIVATE KEY using PBES2/PBKDF2-HMAC-SHA256/AES-256-CBC,

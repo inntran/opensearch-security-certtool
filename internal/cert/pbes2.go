@@ -31,7 +31,27 @@ var (
 	oidAES192CBC  = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 1, 22}
 	oidAES256CBC  = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 1, 42}
 	oidDESEDE3CBC = asn1.ObjectIdentifier{1, 2, 840, 113549, 3, 7}
+
+	// oidPBEWithSHA1And3KeyTripleDESCBC is the legacy PKCS#12 PBE scheme
+	// (RFC 7292) that Java's SunJCE provider uses by default for PKCS#8
+	// private keys, instead of PBES2. Not supported for decryption here
+	// (SHA-1 + 3DES), but recognized so we can point the user at a fix.
+	oidPBEWithSHA1And3KeyTripleDESCBC = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 12, 1, 3}
 )
+
+// pbes2ConversionHelp is appended to the error when a key uses the legacy
+// PKCS#12 PBE scheme, explaining how to convert it to standard PBES2 with
+// openssl (or the bundled scripts/convert-legacy-ca-key.sh helper).
+const pbes2ConversionHelp = `this key is encrypted with the legacy PKCS#12 scheme ` +
+	`pbeWithSHA1And3-KeyTripleDES-CBC (SHA-1 + 3DES), commonly produced by Java's ` +
+	`SunJCE provider (e.g. the Java Search Guard TLS Tool). This is not supported; ` +
+	`convert it to standard PKCS#8 PBES2 first:
+
+  openssl pkcs8 -in old-key.pem -out decrypted-key.pem
+  openssl pkcs8 -topk8 -v2 aes-256-cbc -v2prf hmacWithSHA256 -in decrypted-key.pem -out new-key.pem
+  shred -u decrypted-key.pem
+
+Or run scripts/convert-legacy-ca-key.sh old-key.pem new-key.pem`
 
 // pkcs8EncryptedPrivateKeyInfo mirrors the ASN.1 EncryptedPrivateKeyInfo structure
 // (RFC 5958): SEQUENCE { encryptionAlgorithm AlgorithmIdentifier, encryptedData OCTET STRING }
@@ -69,6 +89,9 @@ func decryptPKCS8EncryptedPrivateKeyInfo(der []byte, password []byte) ([]byte, e
 	}
 
 	if !info.Algo.Algorithm.Equal(oidPBES2) {
+		if info.Algo.Algorithm.Equal(oidPBEWithSHA1And3KeyTripleDESCBC) {
+			return nil, fmt.Errorf("%s", pbes2ConversionHelp)
+		}
 		return nil, fmt.Errorf("unsupported private key encryption algorithm: %s", info.Algo.Algorithm)
 	}
 

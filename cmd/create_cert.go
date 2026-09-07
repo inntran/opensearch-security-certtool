@@ -35,19 +35,26 @@ func createCertCommand() error {
 			return fmt.Errorf("failed to create output directory: %w", err)
 		}
 		
-		// Load or create CA
+		// Load or create CA. caCreated tracks whether we generated any new
+		// CA material in this run: when signing certs against CAs that
+		// already existed on disk, we must not touch the CA's .pem/.key/
+		// .readme files (in particular, GenerateCAReadme would otherwise
+		// overwrite root-ca.readme with an empty/"none" password, since
+		// loading an existing CA doesn't populate certManager's in-memory
+		// password map the way GenerateCA does).
 		var rootCA *cert.CAInfo
-		
+		var caCreated bool
+
 		// Try to load existing CA first
 		caFile := cfg.CA.Root.File
 		if caFile == "" {
 			caFile = "root-ca"
 		}
 		caFile = removeExtension(caFile, ".pem")
-		
+
 		caPath := filepath.Join(outputDir, caFile+".pem")
 		keyPath := filepath.Join(outputDir, caFile+".key")
-		
+
 		if _, err := os.Stat(caPath); os.IsNotExist(err) {
 			// CA doesn't exist, create it
 			if verbose {
@@ -69,6 +76,7 @@ func createCertCommand() error {
 			if err != nil {
 				return fmt.Errorf("failed to create CA: %w", err)
 			}
+			caCreated = true
 			fmt.Printf("✓ Root CA created: %s\n", caPath)
 		} else {
 			// Load existing CA
@@ -114,6 +122,7 @@ func createCertCommand() error {
 				if err != nil {
 					return fmt.Errorf("failed to create intermediate CA: %w", err)
 				}
+				caCreated = true
 				fmt.Printf("✓ Intermediate CA created: %s\n", intermediatePath)
 				rootCA = intermediateCA
 			} else {
@@ -229,8 +238,15 @@ func createCertCommand() error {
 			return fmt.Errorf("failed to generate client documentation: %w", err)
 		}
 		
-		if err := configGen.GenerateCAReadme(certManager.GetPasswords()); err != nil {
-			return fmt.Errorf("failed to generate CA documentation: %w", err)
+		// Only (re)write the CA readme when we actually created new CA
+		// material in this run. Loading an existing CA doesn't populate
+		// certManager's password map, so regenerating the readme here
+		// would blank out its recorded password even though the CA files
+		// on disk are untouched and still use the original password.
+		if caCreated {
+			if err := configGen.GenerateCAReadme(certManager.GetPasswords()); err != nil {
+				return fmt.Errorf("failed to generate CA documentation: %w", err)
+			}
 		}
 		
 		fmt.Println("✓ OpenSearch configuration snippets generated")
