@@ -24,10 +24,10 @@ import (
 
 // CertificateManager handles certificate operations
 type CertificateManager struct {
-	outputDir         string
-	passwordManager   *PasswordManager
-	passwords         *CertificatePasswords
-	logger            *logger.Logger
+	outputDir       string
+	passwordManager *PasswordManager
+	passwords       *CertificatePasswords
+	logger          *logger.Logger
 }
 
 // NewCertificateManager creates a new certificate manager
@@ -135,13 +135,13 @@ func (cm *CertificateManager) GenerateCAWithKeySettings(
 
 	// Create certificate template
 	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      subject,
-		NotBefore:    time.Now(),
-		NotAfter:     time.Now().Add(time.Duration(validityDays) * 24 * time.Hour),
-		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-		IsCA:         true,
+		SerialNumber:          big.NewInt(1),
+		Subject:               subject,
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(time.Duration(validityDays) * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		IsCA:                  true,
 		BasicConstraintsValid: true,
 	}
 
@@ -491,11 +491,11 @@ func (cm *CertificateManager) saveCertificateAndKey(basename string, certPEM, ke
 // parseDistinguishedName parses a DN string into pkix.Name
 func parseDistinguishedName(dn string) (pkix.Name, error) {
 	var name pkix.Name
-	
+
 	// Handle escaped commas by replacing them with a placeholder
 	placeholder := "##ESCAPED_COMMA##"
 	dn = strings.ReplaceAll(dn, "\\,", placeholder)
-	
+
 	// Split by commas and parse each component
 	parts := strings.Split(dn, ",")
 	for _, part := range parts {
@@ -503,19 +503,19 @@ func parseDistinguishedName(dn string) (pkix.Name, error) {
 		if part == "" {
 			continue
 		}
-		
+
 		// Split by equals sign
 		kv := strings.SplitN(part, "=", 2)
 		if len(kv) != 2 {
 			return name, fmt.Errorf("invalid DN component: %s", part)
 		}
-		
+
 		key := strings.TrimSpace(kv[0])
 		value := strings.TrimSpace(kv[1])
-		
+
 		// Restore escaped commas
 		value = strings.ReplaceAll(value, placeholder, ",")
-		
+
 		switch strings.ToUpper(key) {
 		case "CN":
 			name.CommonName = value
@@ -543,11 +543,11 @@ func parseDistinguishedName(dn string) (pkix.Name, error) {
 			return name, fmt.Errorf("unsupported DN attribute: %s", key)
 		}
 	}
-	
+
 	if name.CommonName == "" {
 		return name, fmt.Errorf("CN (Common Name) is required in DN")
 	}
-	
+
 	return name, nil
 }
 
@@ -561,7 +561,7 @@ func (cm *CertificateManager) encryptPrivateKey(keyDER []byte, password string) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt private key: %w", err)
 	}
-	
+
 	return pem.EncodeToMemory(encryptedKey), nil
 }
 
@@ -582,18 +582,18 @@ func LoadCAFromPEMWithPassword(certPEM, keyPEM []byte, password string) (*CAInfo
 	if certBlock == nil {
 		return nil, fmt.Errorf("failed to decode certificate PEM")
 	}
-	
+
 	cert, err := x509.ParseCertificate(certBlock.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse certificate: %w", err)
 	}
-	
+
 	// Parse private key
 	keyBlock, _ := pem.Decode(keyPEM)
 	if keyBlock == nil {
 		return nil, fmt.Errorf("failed to decode private key PEM")
 	}
-	
+
 	var privateKey crypto.Signer
 	switch keyBlock.Type {
 	case "PRIVATE KEY":
@@ -626,13 +626,24 @@ func LoadCAFromPEMWithPassword(certPEM, keyPEM []byte, password string) (*CAInfo
 			return nil, fmt.Errorf("encrypted private key requires password")
 		}
 
-		// Decrypt the private key
-		decryptedKey, err := x509.DecryptPEMBlock(keyBlock, []byte(password))
-		if err != nil {
-			return nil, fmt.Errorf("failed to decrypt private key: %w", err)
+		var decryptedKey []byte
+		if _, hasDEKInfo := keyBlock.Headers["DEK-Info"]; hasDEKInfo {
+			// Legacy RFC1423 PEM-header encryption (this tool's own older output)
+			var err error
+			decryptedKey, err = x509.DecryptPEMBlock(keyBlock, []byte(password))
+			if err != nil {
+				return nil, fmt.Errorf("failed to decrypt private key: %w", err)
+			}
+		} else {
+			// Standard PKCS#8 EncryptedPrivateKeyInfo (RFC 5958/8018 PBES2)
+			var err error
+			decryptedKey, err = decryptPKCS8EncryptedPrivateKeyInfo(keyBlock.Bytes, []byte(password))
+			if err != nil {
+				return nil, fmt.Errorf("failed to decrypt private key: %w", err)
+			}
 		}
 
-		// Parse the decrypted PKCS#8 key
+		// Parse the decrypted PKCS8 key
 		key, err := x509.ParsePKCS8PrivateKey(decryptedKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse decrypted PKCS8 private key: %w", err)
@@ -672,7 +683,7 @@ func asSigner(key interface{}) (crypto.Signer, error) {
 func parseOID(oidStr string) (asn1.ObjectIdentifier, error) {
 	parts := strings.Split(oidStr, ".")
 	oid := make(asn1.ObjectIdentifier, len(parts))
-	
+
 	for i, part := range parts {
 		val, err := strconv.Atoi(part)
 		if err != nil {
@@ -680,6 +691,6 @@ func parseOID(oidStr string) (asn1.ObjectIdentifier, error) {
 		}
 		oid[i] = val
 	}
-	
+
 	return oid, nil
 }

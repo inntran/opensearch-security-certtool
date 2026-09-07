@@ -55,9 +55,10 @@ OpenSearch Security Certificate Tool is a Go-based reimplementation of the Java-
 
 **Key Dependencies:**
 - `crypto/x509`, `crypto/rsa` for cryptographic operations
+- `golang.org/x/crypto/pbkdf2` (official Go extended stdlib) for PKCS#8 PBES2 key derivation
 - `github.com/spf13/cobra` for CLI framework
 - `gopkg.in/yaml.v3` for YAML configuration
-- Standard library only - no external crypto dependencies
+- No third-party crypto dependencies beyond Go's own extended standard library (`golang.org/x/crypto`)
 
 **Output Structure:**
 - Generates certificates and keys in PEM format

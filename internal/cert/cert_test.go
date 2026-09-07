@@ -446,6 +446,76 @@ func TestParseDistinguishedName(t *testing.T) {
 	}
 }
 
+const testPBES2EncryptedKeyPEM = `-----BEGIN ENCRYPTED PRIVATE KEY-----
+MIIFNTBfBgkqhkiG9w0BBQ0wUjAxBgkqhkiG9w0BBQwwJAQQ3z7u/j32qcJ701ln
+a3exJgICCAAwDAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEP8lbfLJBqQPDW7s
+XVgZCh4EggTQiskVc/HAS4oj+KSsYcxZWfTKrFfJxx8SVsubIRZA+wXFcscQP3Sr
+e7peOGXMz+QeT5bJY0aKFcDvvs7fvDnMNF3ZnPj3RdEuuk8pG7sj/1Ogy6US0Slt
+8p4+fx64fLP7ZBObD48JPOh/bOYEmZVoKsQfCe2/j1h5M1zA8AKR1Plt9PpR0zsD
+ul8mMLFzcpGfDBqL5mhJCBONKkp43DAbYX8xIdnntuG0q3a4hMKz15WKh94wW9/k
+xOhwF3dbSDf1Rrzv15tTXxoUZSI/JaX48tmvqh4DZpPL49TXzmNpCRMGlHtkNDTQ
+YlusvvXeRIpBqJfq+bBj7uucddO/B0onsGiXWXvylDXSgTXvNI+aNQNRJqybByvT
+tBz0GvFXPq54MPh6O6ZN21f4HzW5bMAIu/PYjPmZnT5wxx1TOIU5hmy/cH699h63
+ettvOpjQYV+pWLwR+MRIIFRMqMRkEMTP2q05w6GsTZQrcZ3l24Fy6y1uGamgDceq
+XcvejVSPkD6RC3ryZVKdHwtfFFuU25QG0ak6RnqpXpMg5iZCeBuDgH5/R42ik8+s
+InzTPNTadG7wX9u7mg7OCXPVST7IKREv19gV31hq3rrWKDpR044mv8zPLQak5wkl
+NdwYZ/2kWXdN0lDuXn2Wg91tZxde08j4/4xILxq2pa66HR5GgZe5OLYj+ihyguvc
+wEDXylt1RNP55Jv1nro7c6qvo5e/U31z7CdB4rOyGEHzAcLaEQpUEsGtjZHaFaie
+GCTAackIyxfdYgzZ/a1vLyMAQJo+p1YmChXM2yb+J7z7pPQ7CxPJMCW48vtVLGJe
+x3eDuWEipXYySC+sgnr9WridY1TBUbRzblA2eHU3YKJKoyw27iNAQ6VHNQBeFLPJ
+NKTnK+nGJnZXsE6byfUPvsI2TsZj1ui+4aQBX6ceoUlNETZSJ6JbnzyTyHqJSWFQ
+xlkRrp4m47YqtkpUhKcxA5tmyr51jUJBEzdzw4SxMRmfa79F34fb42kkQ7TrEKgt
+78pwdZ/KS70aKLeu9FEhecGhHhwWIGm/HhEVXVnutOfjG2dVZrAcsUZ+iIvMwyoa
+Hh7v4OPpeGSH7pFSFTLUhaU69EvRgBpOU8GyPU1Mn2xoVGsvyI99x4E4b7IYPC4O
+m5dD09tl6K/4/9gCSKOKqURj5DWs3zLrnTGVoiSH65jEjh7HNrH8JI4T47g4zc+C
+NdfVzzNtvy5DuJ5qWOC+/yWv7qFKYSo0uT0CXD5kef3sS8NZSywupawzcHrOq1u7
+kDxxajgCDjIAVLY1L79MvOWufYSMzgxbkaNsCGbOPagxGetgZXRFW4oCbuisX6qL
+HsguAjUkhGUeThDQKzOIlqZ2T/HT+aE6MIh5oC/s309gXvWus/cUMIjmsxSLEtZt
+YOSeVk022oyFd2bMwZcgKscqrr0ipt+EKNk+ijHmo4dCrKhpAHmoM0QUjCR5tj72
+ywyoohFOpMp/oY4ixj8uCxMlgl/kFEdtnQFUuRWI4Tlv0otmYd3ynwhGgGvGNlqV
+PhSGuwH3Z/vgOkB6NMThH18VlOFhIwbc8llwlNUEJbKU9EKVzAdPTHD0rByim2Xw
+Glqx3Upbgy67OT/Txiz7A0cqPwnNfmMUX5Uvjef+qIyJmuHvXqIEUBU=
+-----END ENCRYPTED PRIVATE KEY-----
+`
+
+// TestLoadCAFromPEM_PBES2 verifies decryption of a standard PKCS#8
+// ENCRYPTED PRIVATE KEY using PBES2/PBKDF2-HMAC-SHA256/AES-256-CBC,
+// the format produced by `openssl pkcs8 -topk8 -v2 aes-256-cbc -v2prf hmacWithSHA256`.
+// This is distinct from this tool's own legacy RFC1423 PEM-header encryption.
+func TestLoadCAFromPEM_PBES2(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate private key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		t.Fatalf("Failed to create certificate: %v", err)
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+
+	caInfo, err := LoadCAFromPEMWithPassword(certPEM, []byte(testPBES2EncryptedKeyPEM), "testpassword123")
+	if err != nil {
+		t.Fatalf("Failed to load PBES2-encrypted CA key: %v", err)
+	}
+	if caInfo.PrivateKey == nil {
+		t.Fatal("Expected private key to be loaded")
+	}
+
+	// Wrong password must fail
+	if _, err := LoadCAFromPEMWithPassword(certPEM, []byte(testPBES2EncryptedKeyPEM), "wrongpassword"); err == nil {
+		t.Error("Expected error for wrong password, got none")
+	}
+}
+
 func TestLoadCAFromPEM(t *testing.T) {
 	// Create a test CA certificate and key
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
