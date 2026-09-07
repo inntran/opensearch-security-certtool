@@ -3,8 +3,8 @@ package cert
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/des"
-	"crypto/sha1"
+	"crypto/des"  // #nosec G502 -- decrypting legacy PBES2 keys that use 3DES-CBC, not producing new ciphertext
+	"crypto/sha1" // #nosec G505 -- decrypting legacy PBES2 keys that use PBKDF2-HMAC-SHA1, not producing new signatures
 	"crypto/sha256"
 	"encoding/asn1"
 	"fmt"
@@ -123,16 +123,23 @@ func decryptPKCS8EncryptedPrivateKeyInfo(der []byte, password []byte) ([]byte, e
 func cipherForScheme(oid asn1.ObjectIdentifier) (keyLen int, newCipher func([]byte) (cipher.Block, error), err error) {
 	switch {
 	case oid.Equal(oidAES256CBC):
-		return 32, func(k []byte) (cipher.Block, error) { return aes.NewCipher(k) }, nil
+		return 32, aes.NewCipher, nil
 	case oid.Equal(oidAES192CBC):
-		return 24, func(k []byte) (cipher.Block, error) { return aes.NewCipher(k) }, nil
+		return 24, aes.NewCipher, nil
 	case oid.Equal(oidAES128CBC):
-		return 16, func(k []byte) (cipher.Block, error) { return aes.NewCipher(k) }, nil
+		return 16, aes.NewCipher, nil
 	case oid.Equal(oidDESEDE3CBC):
-		return 24, func(k []byte) (cipher.Block, error) { return des.NewTripleDESCipher(k) }, nil
+		return 24, newTripleDESCipher, nil
 	default:
 		return 0, nil, fmt.Errorf("unsupported PBES2 encryption scheme: %s", oid)
 	}
+}
+
+// newTripleDESCipher decrypts legacy PBES2 keys encrypted with 3DES-CBC
+// (RFC 8018 Appendix B.2.2). 3DES is weak by modern standards but must be
+// supported here to read keys produced by older tooling.
+func newTripleDESCipher(key []byte) (cipher.Block, error) {
+	return des.NewTripleDESCipher(key) // #nosec G405 -- decrypting legacy keys, not producing new ciphertext
 }
 
 // ivForScheme extracts the IV (the encryptionScheme parameters, an OCTET STRING) for CBC modes.
