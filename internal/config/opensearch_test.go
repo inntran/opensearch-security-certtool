@@ -156,6 +156,110 @@ func TestGenerateNodeConfigs(t *testing.T) {
 	}
 }
 
+func TestGenerateNodeConfigsWildcardDNFirst(t *testing.T) {
+	tempDir := t.TempDir()
+
+	config := &Config{
+		CA: CAConfig{
+			Root: CertConfig{
+				DN: "CN=root.ca.example.com,O=Example Com,C=US",
+			},
+		},
+		Defaults: DefaultConfig{
+			ValidityDays: 365,
+			WildcardDN:   "CN=*.example.com,O=Example Com,C=US",
+			NodesDN:      []string{"CN=extra.example.com,O=Example Com,C=US"},
+		},
+		Nodes: []NodeConfig{
+			{
+				Name: "node1",
+				DN:   "CN=node1.example.com,O=Example Com,C=US",
+				DNS:  "node1.example.com",
+			},
+		},
+	}
+
+	passwords := cert.NewCertificatePasswords()
+	cg := NewConfigGenerator(config, tempDir)
+	if err := cg.GenerateNodeConfigs(passwords); err != nil {
+		t.Fatalf("GenerateNodeConfigs() error = %v", err)
+	}
+
+	node1ConfigPath := filepath.Join(tempDir, "node1_opensearch_config_snippet.yml")
+	node1Data, err := os.ReadFile(node1ConfigPath)
+	if err != nil {
+		t.Fatalf("Failed to read node1 config: %v", err)
+	}
+
+	var node1Config OpenSearchNodeConfig
+	yamlContent := extractYAMLFromContent(string(node1Data))
+	if err := yaml.Unmarshal([]byte(yamlContent), &node1Config); err != nil {
+		t.Fatalf("Failed to parse node1 config: %v", err)
+	}
+
+	expectedNodeDNs := []string{
+		"CN=*.example.com,O=Example Com,C=US",
+		"CN=node1.example.com,O=Example Com,C=US",
+		"CN=extra.example.com,O=Example Com,C=US",
+	}
+	if len(node1Config.NodesDN) != len(expectedNodeDNs) {
+		t.Fatalf("Expected %d node DNs, got %d: %v", len(expectedNodeDNs), len(node1Config.NodesDN), node1Config.NodesDN)
+	}
+	for i, expected := range expectedNodeDNs {
+		if node1Config.NodesDN[i] != expected {
+			t.Errorf("NodesDN[%d] = %q, want %q", i, node1Config.NodesDN[i], expected)
+		}
+	}
+}
+
+func TestGenerateNodeConfigsDNsAreDoubleQuoted(t *testing.T) {
+	tempDir := t.TempDir()
+
+	config := &Config{
+		CA: CAConfig{
+			Root: CertConfig{
+				DN: "CN=root.ca.example.com,O=Example Com,C=US",
+			},
+		},
+		Defaults: DefaultConfig{
+			ValidityDays: 365,
+			WildcardDN:   "CN=*.example.com,O=Example Com,C=US",
+		},
+		Nodes: []NodeConfig{
+			{
+				Name: "node1",
+				DN:   "CN=node1.example.com,O=Example Com,C=US",
+				DNS:  "node1.example.com",
+			},
+		},
+		Clients: []ClientConfig{
+			{Name: "admin", DN: "CN=admin,O=Example Com,C=US", Admin: true},
+		},
+	}
+
+	passwords := cert.NewCertificatePasswords()
+	cg := NewConfigGenerator(config, tempDir)
+	if err := cg.GenerateNodeConfigs(passwords); err != nil {
+		t.Fatalf("GenerateNodeConfigs() error = %v", err)
+	}
+
+	node1Data, err := os.ReadFile(filepath.Join(tempDir, "node1_opensearch_config_snippet.yml"))
+	if err != nil {
+		t.Fatalf("Failed to read node1 config: %v", err)
+	}
+	content := string(node1Data)
+
+	for _, want := range []string{
+		`- "CN=*.example.com,O=Example Com,C=US"`,
+		`- "CN=node1.example.com,O=Example Com,C=US"`,
+		`- "CN=admin,O=Example Com,C=US"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("Expected generated config to contain double-quoted line %q, got:\n%s", want, content)
+		}
+	}
+}
+
 func TestGenerateNodeConfigsWithReusedCerts(t *testing.T) {
 	tempDir := t.TempDir()
 

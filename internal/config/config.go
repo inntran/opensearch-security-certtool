@@ -37,6 +37,7 @@ type DefaultConfig struct {
 	ValidityDays               int      `yaml:"validityDays"`
 	PKPassword                 string   `yaml:"pkPassword"`
 	NodesDN                    []string `yaml:"nodesDn"`
+	WildcardDN                 string   `yaml:"wildcard_dn"`
 	NodeOID                    string   `yaml:"nodeOid"`
 	GeneratedPasswordLength    int      `yaml:"generatedPasswordLength"`
 	HTTPSEnabled               bool     `yaml:"httpsEnabled"`

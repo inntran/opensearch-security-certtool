@@ -33,10 +33,37 @@ type OpenSearchNodeConfig struct {
 	HTTPPemTrustedCAs      string   `yaml:"plugins.security.ssl.http.pemtrustedcas_filepath,omitempty"`
 	
 	// Node authentication
-	NodesDN []string `yaml:"plugins.security.nodes_dn"`
-	
+	NodesDN quotedStringList `yaml:"plugins.security.nodes_dn"`
+
 	// Admin authentication
-	AdminDN []string `yaml:"plugins.security.authcz.admin_dn"`
+	AdminDN quotedStringList `yaml:"plugins.security.authcz.admin_dn"`
+}
+
+// quotedStringList is a []string that always marshals each element as a
+// double-quoted YAML scalar (required by plugins.security.nodes_dn and
+// plugins.security.authcz.admin_dn), while unmarshaling like a plain
+// []string regardless of the source quoting style.
+type quotedStringList []string
+
+func (l quotedStringList) MarshalYAML() (interface{}, error) {
+	seq := &yaml.Node{Kind: yaml.SequenceNode}
+	for _, s := range l {
+		seq.Content = append(seq.Content, &yaml.Node{
+			Kind:  yaml.ScalarNode,
+			Style: yaml.DoubleQuotedStyle,
+			Value: s,
+		})
+	}
+	return seq, nil
+}
+
+func (l *quotedStringList) UnmarshalYAML(value *yaml.Node) error {
+	var raw []string
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	*l = raw
+	return nil
 }
 
 // ConfigGenerator handles OpenSearch configuration generation
@@ -55,12 +82,15 @@ func NewConfigGenerator(config *Config, outputDir string) *ConfigGenerator {
 
 // GenerateNodeConfigs creates OpenSearch configuration snippets for all nodes
 func (cg *ConfigGenerator) GenerateNodeConfigs(passwords *cert.CertificatePasswords) error {
-	// Collect all node DNs
+	// Collect all node DNs. The wildcard DN, if configured, comes first.
 	var allNodeDNs []string
+	if cg.config.Defaults.WildcardDN != "" {
+		allNodeDNs = append(allNodeDNs, cg.config.Defaults.WildcardDN)
+	}
 	for _, node := range cg.config.Nodes {
 		allNodeDNs = append(allNodeDNs, node.DN)
 	}
-	
+
 	// Add nodes from defaults if specified
 	allNodeDNs = append(allNodeDNs, cg.config.Defaults.NodesDN...)
 	
@@ -100,8 +130,8 @@ func (cg *ConfigGenerator) buildNodeConfig(
 		TransportResolveHostnames: cg.config.Defaults.ResolveHostnames,
 		
 		// Node and admin authentication
-		NodesDN: allNodeDNs,
-		AdminDN: adminDNs,
+		NodesDN: quotedStringList(allNodeDNs),
+		AdminDN: quotedStringList(adminDNs),
 	}
 	
 	// Add transport key password if needed
