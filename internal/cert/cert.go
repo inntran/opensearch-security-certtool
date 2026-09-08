@@ -613,20 +613,31 @@ func parseDNAttributes(dn string) ([]dnAttribute, error) {
 // that we can marshal a subject whose attribute order is controlled
 // precisely, instead of the fixed field order pkix.Name imposes on encode.
 //
-// OpenSearch Security does not compare RFC2253 display strings directly: its
-// DefaultPrincipalExtractor takes the certificate's X500Principal string
-// (RFC2253, i.e. reverse-of-DER order), re-parses it with javax.naming's
-// LdapName (which un-reverses it back to DER/logical order), and then
-// reverses that list *again* before joining it into the "SSL Principal"
-// used for plugins.security.nodes_dn wildcard matching. Net effect: the
-// principal OpenSearch matches against nodes_dn equals the DN attributes in
-// DER encoding order, unreversed.
+// OpenSearch Security does not compare RFC2253 display strings directly.
+// Tracing what its DefaultPrincipalExtractor actually does, step by step,
+// starting from a certificate whose DER RDN sequence is (in encoding order)
+// [DC=com, ..., CN=host]:
+//
+//  1. X500Principal.toString() renders RFC2253, which displays RDNs in the
+//     *reverse* of DER order: "CN=host, ..., DC=com".
+//  2. javax.naming.ldap.LdapName parses that RFC2253 string into a List<Rdn>
+//     in the same left-to-right order it was written: [CN=host, ..., DC=com]
+//     -- i.e. the reverse of the original DER order.
+//  3. Collections.reverse() flips that list back to [DC=com, ..., CN=host],
+//     matching the original DER order again.
+//  4. The reversed list is comma-joined into the "SSL Principal" used for
+//     plugins.security.nodes_dn wildcard matching: "DC=com,...,CN=host".
+//
+// Net effect, verified against a real javax.naming.ldap.LdapName rather than
+// assumed: the principal OpenSearch matches against nodes_dn is the DN
+// attributes in the certificate's DER encoding order, as-is (steps 1-3
+// cancel out).
 //
 // The legacy Java Search Guard tlstool DER-encodes DC-first (opposite of the
-// CN-first order typically written in tlsconfig's dn: string), so that after
-// the extractor's reversal the resulting principal is CN-first and matches
-// CN-first nodes_dn wildcards. To stay compatible, we must therefore encode
-// the DER subject in the *reverse* of the input DN string's attribute order.
+// CN-first order typically written in tlsconfig's dn: string), so that the
+// resulting principal above is CN-first and matches CN-first nodes_dn
+// wildcards. To stay compatible, we must therefore encode the DER subject in
+// the *reverse* of the input DN string's attribute order.
 type asn1AttributeTypeAndValue struct {
 	Type  asn1.ObjectIdentifier
 	Value string `asn1:"utf8"`

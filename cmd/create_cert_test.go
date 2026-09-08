@@ -151,3 +151,56 @@ func TestCreateCertCommandRefusesNewCAWhenReadmeExistsWithoutPEM(t *testing.T) {
 		t.Fatal("expected no root-ca.pem to be created after the refusal")
 	}
 }
+
+// TestCreateCertCommandRefusesNewCAWhenReadmeExistsWithoutPEM_CustomFile is
+// the same scenario as above but with a custom ca.root.file name. The CA
+// readme is always written as root-ca.readme (templates.CAReadmeFile)
+// regardless of the CA's own PEM/key filename, so the safety check must look
+// for that fixed name rather than "<ca.root.file>.readme".
+func TestCreateCertCommandRefusesNewCAWhenReadmeExistsWithoutPEM_CustomFile(t *testing.T) {
+	tempDir := t.TempDir()
+
+	origCfg, origOutputDir, origVerbose, origCertManager, origLog := cfg, outputDir, verbose, certManager, log
+	t.Cleanup(func() {
+		cfg, outputDir, verbose, certManager, log = origCfg, origOutputDir, origVerbose, origCertManager, origLog
+	})
+
+	if err := os.WriteFile(filepath.Join(tempDir, "root-ca.readme"), []byte("root:\n  pkPassword: somepass\n"), 0600); err != nil {
+		t.Fatalf("failed to write stub root-ca.readme: %v", err)
+	}
+
+	cfg = &config.Config{
+		CA: config.CAConfig{
+			Root: config.CertConfig{
+				DN:           "CN=root.ca.example.com,O=Example Com,C=US",
+				KeySize:      2048,
+				ValidityDays: 365,
+				PKPassword:   "rootpass123",
+				File:         "custom-root-ca",
+			},
+		},
+		Defaults: config.DefaultConfig{
+			ValidityDays:            365,
+			GeneratedPasswordLength: 12,
+		},
+		Nodes: []config.NodeConfig{
+			{Name: "node1", DN: "CN=node1.example.com,O=Example Com,C=US", DNS: "node1.example.com"},
+		},
+	}
+	outputDir = tempDir
+	verbose = false
+	log = logger.New(false)
+	certManager = cert.NewCertificateManager(outputDir, cfg.Defaults.GeneratedPasswordLength, log)
+
+	err := createCertCommand()
+	if err == nil {
+		t.Fatal("expected createCertCommand() to fail when root-ca.readme exists without custom-root-ca.pem, got nil error")
+	}
+	if !strings.Contains(err.Error(), "root-ca.readme") || !strings.Contains(err.Error(), "custom-root-ca.pem") {
+		t.Fatalf("expected error to mention root-ca.readme and custom-root-ca.pem, got: %v", err)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(tempDir, "custom-root-ca.pem")); statErr == nil {
+		t.Fatal("expected no custom-root-ca.pem to be created after the refusal")
+	}
+}

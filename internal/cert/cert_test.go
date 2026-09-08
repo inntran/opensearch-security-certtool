@@ -468,13 +468,41 @@ func openSearchPrincipal(t *testing.T, cert *x509.Certificate) string {
 			case "2.5.4.6":
 				name = "C"
 			}
-			parts = append(parts, fmt.Sprintf("%s=%s", name, atv.Value))
+			value, ok := atv.Value.(string)
+			if !ok {
+				t.Fatalf("unexpected non-string RDN value for %s: %#v", name, atv.Value)
+			}
+			parts = append(parts, fmt.Sprintf("%s=%s", name, rfc2253EscapeValue(value)))
 		}
 	}
 	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
 		parts[i], parts[j] = parts[j], parts[i]
 	}
 	return strings.Join(parts, ",")
+}
+
+// rfc2253EscapeValue escapes an attribute value the way RFC 2253 (and
+// javax.naming.ldap.Rdn.toString, which OpenSearch's DefaultPrincipalExtractor
+// relies on) requires: a backslash before each special character, plus a
+// leading space or '#' and any trailing space.
+func rfc2253EscapeValue(value string) string {
+	var b strings.Builder
+	for i, r := range value {
+		switch {
+		case strings.ContainsRune(`,+"\<>;`, r):
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r == ' ' && (i == 0 || i == len(value)-1):
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r == '#' && i == 0:
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func TestGenerateCAOpenSearchPrincipalMatchesDNOrder(t *testing.T) {
@@ -651,9 +679,10 @@ func TestGenerateNodeCertificateOpenSearchPrincipalWithEscapedComma(t *testing.T
 		t.Fatalf("expected escaped comma to be restored in O, got %q", cert.Subject.Organization)
 	}
 
-	wantDN := `CN=node.example.com,O=My, Org,DC=example,DC=com`
-	if got := openSearchPrincipal(t, cert); got != wantDN {
-		t.Fatalf("OpenSearch principal = %q, want %q", got, wantDN)
+	// The RFC2253-escaped OpenSearch principal should round-trip back to
+	// the exact original (escaped) dn string.
+	if got := openSearchPrincipal(t, cert); got != dn {
+		t.Fatalf("OpenSearch principal = %q, want %q", got, dn)
 	}
 
 	// DER order must be the exact reverse of the DN string: DC, DC, O, CN.
