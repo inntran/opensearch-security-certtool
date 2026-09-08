@@ -133,10 +133,16 @@ func (cm *CertificateManager) GenerateCAWithKeySettings(
 		return nil, fmt.Errorf("failed to parse DN: %w", err)
 	}
 
+	rawSubject, err := buildOrderedRawSubject(dn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode DN: %w", err)
+	}
+
 	// Create certificate template
 	template := x509.Certificate{
 		SerialNumber:          big.NewInt(1),
 		Subject:               subject,
+		RawSubject:            rawSubject,
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().Add(time.Duration(validityDays) * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
@@ -263,6 +269,11 @@ func (cm *CertificateManager) GenerateNodeCertificateWithKeySettings(
 		return fmt.Errorf("failed to parse DN: %w", err)
 	}
 
+	rawSubject, err := buildOrderedRawSubject(dn)
+	if err != nil {
+		return fmt.Errorf("failed to encode DN: %w", err)
+	}
+
 	// Parse IP addresses
 	var ips []net.IP
 	for _, ipStr := range ipAddresses {
@@ -276,6 +287,7 @@ func (cm *CertificateManager) GenerateNodeCertificateWithKeySettings(
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject:      subject,
+		RawSubject:   rawSubject,
 		NotBefore:    time.Now(),
 		NotAfter:     time.Now().Add(time.Duration(validityDays) * 24 * time.Hour),
 		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
@@ -395,11 +407,17 @@ func (cm *CertificateManager) GenerateClientCertificateWithKeySettings(
 		return fmt.Errorf("failed to parse DN: %w", err)
 	}
 
+	rawSubject, err := buildOrderedRawSubject(dn)
+	if err != nil {
+		return fmt.Errorf("failed to encode DN: %w", err)
+	}
+
 	// Create certificate template
 	serialNumber, _ := rand.Int(rand.Reader, big.NewInt(1000000))
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject:      subject,
+		RawSubject:   rawSubject,
 		NotBefore:    time.Now(),
 		NotAfter:     time.Now().Add(time.Duration(validityDays) * 24 * time.Hour),
 		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
@@ -488,13 +506,78 @@ func (cm *CertificateManager) saveCertificateAndKey(basename string, certPEM, ke
 	return nil
 }
 
+// dnAttributeOIDs maps DN attribute keywords to their ASN.1 object identifiers.
+var dnAttributeOIDs = map[string]asn1.ObjectIdentifier{
+	"CN":         {2, 5, 4, 3},
+	"O":          {2, 5, 4, 10},
+	"OU":         {2, 5, 4, 11},
+	"C":          {2, 5, 4, 6},
+	"L":          {2, 5, 4, 7},
+	"ST":         {2, 5, 4, 8},
+	"S":          {2, 5, 4, 8},
+	"STREET":     {2, 5, 4, 9},
+	"POSTALCODE": {2, 5, 4, 17},
+	"DC":         {0, 9, 2342, 19200300, 100, 1, 25},
+}
+
 // parseDistinguishedName parses a DN string into pkix.Name
 func parseDistinguishedName(dn string) (pkix.Name, error) {
 	var name pkix.Name
 
+	attrs, err := parseDNAttributes(dn)
+	if err != nil {
+		return name, err
+	}
+
+	for _, attr := range attrs {
+		switch attr.key {
+		case "CN":
+			name.CommonName = attr.value
+		case "O":
+			name.Organization = append(name.Organization, attr.value)
+		case "OU":
+			name.OrganizationalUnit = append(name.OrganizationalUnit, attr.value)
+		case "C":
+			name.Country = append(name.Country, attr.value)
+		case "L":
+			name.Locality = append(name.Locality, attr.value)
+		case "ST", "S":
+			name.Province = append(name.Province, attr.value)
+		case "STREET":
+			name.StreetAddress = append(name.StreetAddress, attr.value)
+		case "POSTALCODE":
+			name.PostalCode = append(name.PostalCode, attr.value)
+		case "DC":
+			// Domain Component - add to ExtraNames
+			name.ExtraNames = append(name.ExtraNames, pkix.AttributeTypeAndValue{
+				Type:  dnAttributeOIDs["DC"],
+				Value: attr.value,
+			})
+		}
+	}
+
+	if name.CommonName == "" {
+		return name, fmt.Errorf("CN (Common Name) is required in DN")
+	}
+
+	return name, nil
+}
+
+// dnAttribute is a single parsed "KEY=value" component of a DN string,
+// preserving the original input order.
+type dnAttribute struct {
+	key   string
+	value string
+}
+
+// parseDNAttributes splits a DN string into ordered key/value components,
+// validating that each key is a supported DN attribute.
+func parseDNAttributes(dn string) ([]dnAttribute, error) {
 	// Handle escaped commas by replacing them with a placeholder
 	placeholder := "##ESCAPED_COMMA##"
 	dn = strings.ReplaceAll(dn, "\\,", placeholder)
+
+	var attrs []dnAttribute
 
 	// Split by commas and parse each component
 	parts := strings.Split(dn, ",")
@@ -507,48 +590,67 @@ func parseDistinguishedName(dn string) (pkix.Name, error) {
 		// Split by equals sign
 		kv := strings.SplitN(part, "=", 2)
 		if len(kv) != 2 {
-			return name, fmt.Errorf("invalid DN component: %s", part)
+			return nil, fmt.Errorf("invalid DN component: %s", part)
 		}
 
-		key := strings.TrimSpace(kv[0])
+		key := strings.ToUpper(strings.TrimSpace(kv[0]))
 		value := strings.TrimSpace(kv[1])
 
 		// Restore escaped commas
 		value = strings.ReplaceAll(value, placeholder, ",")
 
-		switch strings.ToUpper(key) {
-		case "CN":
-			name.CommonName = value
-		case "O":
-			name.Organization = append(name.Organization, value)
-		case "OU":
-			name.OrganizationalUnit = append(name.OrganizationalUnit, value)
-		case "C":
-			name.Country = append(name.Country, value)
-		case "L":
-			name.Locality = append(name.Locality, value)
-		case "ST", "S":
-			name.Province = append(name.Province, value)
-		case "STREET":
-			name.StreetAddress = append(name.StreetAddress, value)
-		case "POSTALCODE":
-			name.PostalCode = append(name.PostalCode, value)
-		case "DC":
-			// Domain Component - add to ExtraNames
-			name.ExtraNames = append(name.ExtraNames, pkix.AttributeTypeAndValue{
-				Type:  []int{0, 9, 2342, 19200300, 100, 1, 25}, // DC OID
-				Value: value,
-			})
-		default:
-			return name, fmt.Errorf("unsupported DN attribute: %s", key)
+		if _, ok := dnAttributeOIDs[key]; !ok {
+			return nil, fmt.Errorf("unsupported DN attribute: %s", key)
 		}
+
+		attrs = append(attrs, dnAttribute{key: key, value: value})
 	}
 
-	if name.CommonName == "" {
-		return name, fmt.Errorf("CN (Common Name) is required in DN")
+	return attrs, nil
+}
+
+// asn1RDN mirrors the ASN.1 AttributeTypeAndValue / RDN / Name structures so
+// that we can marshal a subject whose attribute order matches the input DN
+// string exactly, instead of the fixed field order pkix.Name imposes on
+// encode. OpenSearch Security's nodes_dn matching compares the full RFC1779
+// subject string, so attribute order must be preserved to stay compatible
+// with certificates issued by the legacy Java Search Guard tlstool.
+type asn1AttributeTypeAndValue struct {
+	Type  asn1.ObjectIdentifier
+	Value string `asn1:"utf8"`
+}
+
+// asn1RDNSET is a single-valued RelativeDistinguishedName. The Go asn1
+// package special-cases slice type names with a "SET" suffix (mirroring
+// pkix.RelativeDistinguishedNameSET) to encode as SET OF instead of the
+// default SEQUENCE OF.
+type asn1RDNSET []asn1AttributeTypeAndValue
+
+// buildOrderedRawSubject parses a DN string and ASN.1-encodes it as an X.501
+// Name (RDNSequence of single-valued RDNs) in the exact attribute order the
+// DN string specifies, for use as x509.Certificate.RawSubject.
+func buildOrderedRawSubject(dn string) ([]byte, error) {
+	attrs, err := parseDNAttributes(dn)
+	if err != nil {
+		return nil, err
 	}
 
-	return name, nil
+	hasCN := false
+	rdnSequence := make([]asn1RDNSET, 0, len(attrs))
+	for _, attr := range attrs {
+		if attr.key == "CN" {
+			hasCN = true
+		}
+		rdnSequence = append(rdnSequence, asn1RDNSET{
+			{Type: dnAttributeOIDs[attr.key], Value: attr.value},
+		})
+	}
+
+	if !hasCN {
+		return nil, fmt.Errorf("CN (Common Name) is required in DN")
+	}
+
+	return asn1.Marshal(rdnSequence)
 }
 
 // encryptPrivateKey encrypts a PKCS#8 private key with a password, producing

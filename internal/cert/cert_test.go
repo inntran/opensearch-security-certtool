@@ -1,12 +1,14 @@
 package cert
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
 	"math/big"
 	"os"
@@ -402,6 +404,222 @@ func TestGenerateClientCertificate(t *testing.T) {
 	password := cm.passwords.GetClientPassword("admin")
 	if password == "" {
 		t.Error("Expected client password to be stored")
+	}
+}
+
+// subjectAttrOIDs returns the OIDs of a certificate's subject RDNs in the
+// order they were encoded, as dotted strings, by decoding RawSubject
+// directly rather than going through pkix.Name (which reorders fields).
+func subjectAttrOIDs(t *testing.T, cert *x509.Certificate) []string {
+	t.Helper()
+
+	var rdnSeq pkix.RDNSequence
+	rest, err := asn1.Unmarshal(cert.RawSubject, &rdnSeq)
+	if err != nil {
+		t.Fatalf("failed to unmarshal RawSubject: %v", err)
+	}
+	if len(rest) != 0 {
+		t.Fatalf("unexpected trailing bytes after RawSubject: %d", len(rest))
+	}
+
+	var oids []string
+	for _, rdn := range rdnSeq {
+		for _, atv := range rdn {
+			oids = append(oids, atv.Type.String())
+		}
+	}
+	return oids
+}
+
+const (
+	oidCN = "2.5.4.3"
+	oidDC = "0.9.2342.19200300.100.1.25"
+)
+
+func TestGenerateCASubjectPreservesDNOrder(t *testing.T) {
+	tempDir := t.TempDir()
+	log := logger.New(false)
+	cm := NewCertificateManager(tempDir, 16, log)
+
+	dn := "CN=node.example.com,OU=Example,O=Example Org,DC=opensearch,DC=example,DC=com"
+	caInfo, err := cm.GenerateCA(dn, 2048, 365, "root-ca", "none")
+	if err != nil {
+		t.Fatalf("GenerateCA() error = %v", err)
+	}
+
+	oids := subjectAttrOIDs(t, caInfo.Certificate)
+	if len(oids) == 0 || oids[0] != oidCN {
+		t.Fatalf("expected subject to start with CN (%s), got order: %v", oidCN, oids)
+	}
+
+	cnIndex, dcIndex := -1, -1
+	for i, oid := range oids {
+		if oid == oidCN && cnIndex == -1 {
+			cnIndex = i
+		}
+		if oid == oidDC && dcIndex == -1 {
+			dcIndex = i
+		}
+	}
+	if dcIndex != -1 && cnIndex > dcIndex {
+		t.Fatalf("expected CN before DC, got order: %v", oids)
+	}
+}
+
+func TestGenerateNodeCertificateSubjectPreservesDNOrder(t *testing.T) {
+	tempDir := t.TempDir()
+	log := logger.New(false)
+	cm := NewCertificateManager(tempDir, 16, log)
+
+	caInfo, err := cm.GenerateCA(
+		"CN=Test CA,OU=Example,O=Example Org,DC=opensearch,DC=example,DC=com",
+		2048, 365, "root-ca", "none",
+	)
+	if err != nil {
+		t.Fatalf("GenerateCA() error = %v", err)
+	}
+
+	dn := "CN=node-001.example.com,OU=Example,O=Example Org,DC=opensearch,DC=example,DC=com"
+	if err := cm.GenerateNodeCertificate(
+		caInfo, dn, []string{"node-001.example.com"}, nil, 365, "node-001", "none",
+	); err != nil {
+		t.Fatalf("GenerateNodeCertificate() error = %v", err)
+	}
+
+	certData, err := os.ReadFile(filepath.Join(tempDir, "node-001.pem"))
+	if err != nil {
+		t.Fatalf("failed to read node cert: %v", err)
+	}
+	block, _ := pem.Decode(certData)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("failed to parse node cert: %v", err)
+	}
+
+	oids := subjectAttrOIDs(t, cert)
+	if len(oids) == 0 || oids[0] != oidCN {
+		t.Fatalf("expected node cert subject to start with CN, got order: %v", oids)
+	}
+
+	issuerOIDs := subjectAttrOIDs(t, caInfo.Certificate)
+	if !bytes.Equal(cert.RawIssuer, caInfo.Certificate.RawSubject) {
+		t.Fatalf("expected node cert issuer bytes to match CA subject bytes exactly")
+	}
+	if len(issuerOIDs) == 0 || issuerOIDs[0] != oidCN {
+		t.Fatalf("expected CA (issuer) subject to start with CN, got order: %v", issuerOIDs)
+	}
+}
+
+func TestGenerateClientCertificateSubjectPreservesDNOrder(t *testing.T) {
+	tempDir := t.TempDir()
+	log := logger.New(false)
+	cm := NewCertificateManager(tempDir, 16, log)
+
+	caInfo, err := cm.GenerateCA("CN=Test CA,O=Test Org,C=US", 2048, 365, "root-ca", "none")
+	if err != nil {
+		t.Fatalf("GenerateCA() error = %v", err)
+	}
+
+	dn := "CN=admin,OU=Example,O=Example Org,DC=opensearch,DC=example,DC=com"
+	if err := cm.GenerateClientCertificate(caInfo, dn, 365, "admin", "none"); err != nil {
+		t.Fatalf("GenerateClientCertificate() error = %v", err)
+	}
+
+	certData, err := os.ReadFile(filepath.Join(tempDir, "admin.pem"))
+	if err != nil {
+		t.Fatalf("failed to read client cert: %v", err)
+	}
+	block, _ := pem.Decode(certData)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("failed to parse client cert: %v", err)
+	}
+
+	oids := subjectAttrOIDs(t, cert)
+	if len(oids) == 0 || oids[0] != oidCN {
+		t.Fatalf("expected client cert subject to start with CN, got order: %v", oids)
+	}
+}
+
+func TestGenerateNodeCertificateSubjectOrderWithoutDC(t *testing.T) {
+	tempDir := t.TempDir()
+	log := logger.New(false)
+	cm := NewCertificateManager(tempDir, 16, log)
+
+	caInfo, err := cm.GenerateCA("CN=Test CA,O=Test Org,C=US", 2048, 365, "root-ca", "none")
+	if err != nil {
+		t.Fatalf("GenerateCA() error = %v", err)
+	}
+
+	dn := "CN=node.example.com,OU=Example,O=Example Org,C=US"
+	if err := cm.GenerateNodeCertificate(
+		caInfo, dn, []string{"node.example.com"}, nil, 365, "node", "none",
+	); err != nil {
+		t.Fatalf("GenerateNodeCertificate() error = %v", err)
+	}
+
+	certData, err := os.ReadFile(filepath.Join(tempDir, "node.pem"))
+	if err != nil {
+		t.Fatalf("failed to read node cert: %v", err)
+	}
+	block, _ := pem.Decode(certData)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("failed to parse node cert: %v", err)
+	}
+
+	wantOIDs := []string{oidCN, "2.5.4.11", "2.5.4.10", "2.5.4.6"} // CN, OU, O, C
+	oids := subjectAttrOIDs(t, cert)
+	if len(oids) != len(wantOIDs) {
+		t.Fatalf("expected %d subject attrs, got %d: %v", len(wantOIDs), len(oids), oids)
+	}
+	for i, want := range wantOIDs {
+		if oids[i] != want {
+			t.Fatalf("attr %d: expected OID %s, got %s (full order: %v)", i, want, oids[i], oids)
+		}
+	}
+}
+
+func TestGenerateNodeCertificateSubjectOrderWithEscapedComma(t *testing.T) {
+	tempDir := t.TempDir()
+	log := logger.New(false)
+	cm := NewCertificateManager(tempDir, 16, log)
+
+	caInfo, err := cm.GenerateCA("CN=Test CA,O=Test Org,C=US", 2048, 365, "root-ca", "none")
+	if err != nil {
+		t.Fatalf("GenerateCA() error = %v", err)
+	}
+
+	dn := `CN=node.example.com,O=My\, Org,DC=example,DC=com`
+	if err := cm.GenerateNodeCertificate(
+		caInfo, dn, []string{"node.example.com"}, nil, 365, "node", "none",
+	); err != nil {
+		t.Fatalf("GenerateNodeCertificate() error = %v", err)
+	}
+
+	certData, err := os.ReadFile(filepath.Join(tempDir, "node.pem"))
+	if err != nil {
+		t.Fatalf("failed to read node cert: %v", err)
+	}
+	block, _ := pem.Decode(certData)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("failed to parse node cert: %v", err)
+	}
+
+	if cert.Subject.Organization[0] != "My, Org" {
+		t.Fatalf("expected escaped comma to be restored in O, got %q", cert.Subject.Organization)
+	}
+
+	wantOIDs := []string{oidCN, "2.5.4.10", oidDC, oidDC} // CN, O, DC, DC
+	oids := subjectAttrOIDs(t, cert)
+	if len(oids) != len(wantOIDs) {
+		t.Fatalf("expected %d subject attrs, got %d: %v", len(wantOIDs), len(oids), oids)
+	}
+	for i, want := range wantOIDs {
+		if oids[i] != want {
+			t.Fatalf("attr %d: expected OID %s, got %s (full order: %v)", i, want, oids[i], oids)
+		}
 	}
 }
 
