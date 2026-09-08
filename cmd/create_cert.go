@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/inntran/opensearch-security-certtool/internal/cert"
 	"github.com/inntran/opensearch-security-certtool/internal/config"
+	"github.com/inntran/opensearch-security-certtool/internal/templates"
 )
 
 // createCertCmd represents the create-cert command
@@ -62,7 +63,11 @@ func createCertCommand() error {
 			// expanding an existing cluster). Silently minting a new CA
 			// here would produce node certs that don't chain to the
 			// original cluster CA, so refuse instead of guessing.
-			readmePath := filepath.Join(outputDir, caFile+".readme")
+			//
+			// The readme is always named root-ca.readme (templates.CAReadmeFile)
+			// regardless of the CA's own PEM/key filename (ca.root.file), so
+			// check for that fixed name rather than caFile+".readme".
+			readmePath := filepath.Join(outputDir, templates.CAReadmeFile)
 			if _, readmeErr := os.Stat(readmePath); readmeErr == nil {
 				return fmt.Errorf(
 					"found %s but no %s: refusing to create a new CA that would not match the existing cluster; "+
@@ -121,7 +126,7 @@ func createCertCommand() error {
 				// root-ca.readme without the intermediate CA's PEM/key
 				// means this output directory previously held CA material
 				// that is now incomplete.
-				readmePath := filepath.Join(outputDir, "root-ca.readme")
+				readmePath := filepath.Join(outputDir, templates.CAReadmeFile)
 				if _, readmeErr := os.Stat(readmePath); readmeErr == nil {
 					return fmt.Errorf(
 						"found %s but no %s: refusing to create a new intermediate CA that would not match the existing cluster; "+
