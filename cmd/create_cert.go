@@ -56,11 +56,26 @@ func createCertCommand() error {
 		keyPath := filepath.Join(outputDir, caFile+".key")
 
 		if _, err := os.Stat(caPath); os.IsNotExist(err) {
+			// CA doesn't exist. If a root-ca.readme is present, this output
+			// directory previously held a CA whose .pem/.key are now
+			// missing (e.g. an operator only copied partial files when
+			// expanding an existing cluster). Silently minting a new CA
+			// here would produce node certs that don't chain to the
+			// original cluster CA, so refuse instead of guessing.
+			readmePath := filepath.Join(outputDir, caFile+".readme")
+			if _, readmeErr := os.Stat(readmePath); readmeErr == nil {
+				return fmt.Errorf(
+					"found %s but no %s: refusing to create a new CA that would not match the existing cluster; "+
+						"copy the original root-ca.pem and root-ca.key into %s before running crt/create-cert",
+					readmePath, caPath, outputDir,
+				)
+			}
+
 			// CA doesn't exist, create it
 			if verbose {
 				fmt.Println("CA not found, creating new CA...")
 			}
-			
+
 			rootCA, err = certManager.GenerateCAWithKeySettings(
 				cfg.CA.Root.DN,
 				cfg.CA.Root.KeySize,
@@ -102,11 +117,24 @@ func createCertCommand() error {
 			intermediateKeyPath := filepath.Join(outputDir, "signing-ca.key")
 			
 			if _, err := os.Stat(intermediatePath); os.IsNotExist(err) {
+				// Same safety check as the root CA above: a leftover
+				// root-ca.readme without the intermediate CA's PEM/key
+				// means this output directory previously held CA material
+				// that is now incomplete.
+				readmePath := filepath.Join(outputDir, "root-ca.readme")
+				if _, readmeErr := os.Stat(readmePath); readmeErr == nil {
+					return fmt.Errorf(
+						"found %s but no %s: refusing to create a new intermediate CA that would not match the existing cluster; "+
+							"copy the original signing-ca.pem and signing-ca.key into %s before running crt/create-cert",
+						readmePath, intermediatePath, outputDir,
+					)
+				}
+
 				// Create intermediate CA
 				if verbose {
 					fmt.Println("Creating intermediate CA...")
 				}
-				
+
 				intermediateCA, err := certManager.GenerateCAWithKeySettings(
 					cfg.CA.Intermediate.DN,
 					cfg.CA.Intermediate.KeySize,

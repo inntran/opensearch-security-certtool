@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -436,7 +437,47 @@ const (
 	oidDC = "0.9.2342.19200300.100.1.25"
 )
 
-func TestGenerateCASubjectPreservesDNOrder(t *testing.T) {
+// openSearchPrincipal reproduces OpenSearch Security's
+// DefaultPrincipalExtractor: it takes the certificate's DER RDN sequence
+// (logical/encoding order) and reverses it, joining with commas. This is
+// the string plugins.security.nodes_dn wildcards are actually matched
+// against, which is why our DER encoding order must be the reverse of the
+// DN string's attribute order (see the asn1AttributeTypeAndValue doc
+// comment in cert.go).
+func openSearchPrincipal(t *testing.T, cert *x509.Certificate) string {
+	t.Helper()
+
+	var rdnSeq pkix.RDNSequence
+	if _, err := asn1.Unmarshal(cert.RawSubject, &rdnSeq); err != nil {
+		t.Fatalf("failed to unmarshal RawSubject: %v", err)
+	}
+
+	parts := make([]string, 0, len(rdnSeq))
+	for _, rdn := range rdnSeq {
+		for _, atv := range rdn {
+			name := atv.Type.String()
+			switch name {
+			case oidCN:
+				name = "CN"
+			case oidDC:
+				name = "DC"
+			case "2.5.4.10":
+				name = "O"
+			case "2.5.4.11":
+				name = "OU"
+			case "2.5.4.6":
+				name = "C"
+			}
+			parts = append(parts, fmt.Sprintf("%s=%s", name, atv.Value))
+		}
+	}
+	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
+		parts[i], parts[j] = parts[j], parts[i]
+	}
+	return strings.Join(parts, ",")
+}
+
+func TestGenerateCAOpenSearchPrincipalMatchesDNOrder(t *testing.T) {
 	tempDir := t.TempDir()
 	log := logger.New(false)
 	cm := NewCertificateManager(tempDir, 16, log)
@@ -447,34 +488,19 @@ func TestGenerateCASubjectPreservesDNOrder(t *testing.T) {
 		t.Fatalf("GenerateCA() error = %v", err)
 	}
 
-	oids := subjectAttrOIDs(t, caInfo.Certificate)
-	if len(oids) == 0 || oids[0] != oidCN {
-		t.Fatalf("expected subject to start with CN (%s), got order: %v", oidCN, oids)
-	}
-
-	cnIndex, dcIndex := -1, -1
-	for i, oid := range oids {
-		if oid == oidCN && cnIndex == -1 {
-			cnIndex = i
-		}
-		if oid == oidDC && dcIndex == -1 {
-			dcIndex = i
-		}
-	}
-	if dcIndex != -1 && cnIndex > dcIndex {
-		t.Fatalf("expected CN before DC, got order: %v", oids)
+	want := "CN=node.example.com,OU=Example,O=Example Org,DC=opensearch,DC=example,DC=com"
+	if got := openSearchPrincipal(t, caInfo.Certificate); got != want {
+		t.Fatalf("OpenSearch principal = %q, want %q", got, want)
 	}
 }
 
-func TestGenerateNodeCertificateSubjectPreservesDNOrder(t *testing.T) {
+func TestGenerateNodeCertificateOpenSearchPrincipalMatchesDNOrder(t *testing.T) {
 	tempDir := t.TempDir()
 	log := logger.New(false)
 	cm := NewCertificateManager(tempDir, 16, log)
 
-	caInfo, err := cm.GenerateCA(
-		"CN=Test CA,OU=Example,O=Example Org,DC=opensearch,DC=example,DC=com",
-		2048, 365, "root-ca", "none",
-	)
+	caDN := "CN=Test CA,OU=Example,O=Example Org,DC=opensearch,DC=example,DC=com"
+	caInfo, err := cm.GenerateCA(caDN, 2048, 365, "root-ca", "none")
 	if err != nil {
 		t.Fatalf("GenerateCA() error = %v", err)
 	}
@@ -499,21 +525,19 @@ func TestGenerateNodeCertificateSubjectPreservesDNOrder(t *testing.T) {
 		t.Fatalf("failed to parse node cert: %v", err)
 	}
 
-	oids := subjectAttrOIDs(t, cert)
-	if len(oids) == 0 || oids[0] != oidCN {
-		t.Fatalf("expected node cert subject to start with CN, got order: %v", oids)
+	if got := openSearchPrincipal(t, cert); got != dn {
+		t.Fatalf("OpenSearch principal = %q, want %q", got, dn)
 	}
 
-	issuerOIDs := subjectAttrOIDs(t, caInfo.Certificate)
 	if !bytes.Equal(cert.RawIssuer, caInfo.Certificate.RawSubject) {
 		t.Fatalf("expected node cert issuer bytes to match CA subject bytes exactly")
 	}
-	if len(issuerOIDs) == 0 || issuerOIDs[0] != oidCN {
-		t.Fatalf("expected CA (issuer) subject to start with CN, got order: %v", issuerOIDs)
+	if got := openSearchPrincipal(t, caInfo.Certificate); got != caDN {
+		t.Fatalf("issuer (CA) OpenSearch principal = %q, want %q", got, caDN)
 	}
 }
 
-func TestGenerateClientCertificateSubjectPreservesDNOrder(t *testing.T) {
+func TestGenerateClientCertificateOpenSearchPrincipalMatchesDNOrder(t *testing.T) {
 	tempDir := t.TempDir()
 	log := logger.New(false)
 	cm := NewCertificateManager(tempDir, 16, log)
@@ -541,13 +565,12 @@ func TestGenerateClientCertificateSubjectPreservesDNOrder(t *testing.T) {
 		t.Fatalf("failed to parse client cert: %v", err)
 	}
 
-	oids := subjectAttrOIDs(t, cert)
-	if len(oids) == 0 || oids[0] != oidCN {
-		t.Fatalf("expected client cert subject to start with CN, got order: %v", oids)
+	if got := openSearchPrincipal(t, cert); got != dn {
+		t.Fatalf("OpenSearch principal = %q, want %q", got, dn)
 	}
 }
 
-func TestGenerateNodeCertificateSubjectOrderWithoutDC(t *testing.T) {
+func TestGenerateNodeCertificateOpenSearchPrincipalWithoutDC(t *testing.T) {
 	tempDir := t.TempDir()
 	log := logger.New(false)
 	cm := NewCertificateManager(tempDir, 16, log)
@@ -577,7 +600,12 @@ func TestGenerateNodeCertificateSubjectOrderWithoutDC(t *testing.T) {
 		t.Fatalf("failed to parse node cert: %v", err)
 	}
 
-	wantOIDs := []string{oidCN, "2.5.4.11", "2.5.4.10", "2.5.4.6"} // CN, OU, O, C
+	if got := openSearchPrincipal(t, cert); got != dn {
+		t.Fatalf("OpenSearch principal = %q, want %q", got, dn)
+	}
+
+	// DER order must be the exact reverse of the DN string.
+	wantOIDs := []string{"2.5.4.6", "2.5.4.10", "2.5.4.11", oidCN} // C, O, OU, CN
 	oids := subjectAttrOIDs(t, cert)
 	if len(oids) != len(wantOIDs) {
 		t.Fatalf("expected %d subject attrs, got %d: %v", len(wantOIDs), len(oids), oids)
@@ -589,7 +617,7 @@ func TestGenerateNodeCertificateSubjectOrderWithoutDC(t *testing.T) {
 	}
 }
 
-func TestGenerateNodeCertificateSubjectOrderWithEscapedComma(t *testing.T) {
+func TestGenerateNodeCertificateOpenSearchPrincipalWithEscapedComma(t *testing.T) {
 	tempDir := t.TempDir()
 	log := logger.New(false)
 	cm := NewCertificateManager(tempDir, 16, log)
@@ -623,7 +651,13 @@ func TestGenerateNodeCertificateSubjectOrderWithEscapedComma(t *testing.T) {
 		t.Fatalf("expected escaped comma to be restored in O, got %q", cert.Subject.Organization)
 	}
 
-	wantOIDs := []string{oidCN, "2.5.4.10", oidDC, oidDC} // CN, O, DC, DC
+	wantDN := `CN=node.example.com,O=My, Org,DC=example,DC=com`
+	if got := openSearchPrincipal(t, cert); got != wantDN {
+		t.Fatalf("OpenSearch principal = %q, want %q", got, wantDN)
+	}
+
+	// DER order must be the exact reverse of the DN string: DC, DC, O, CN.
+	wantOIDs := []string{oidDC, oidDC, "2.5.4.10", oidCN}
 	oids := subjectAttrOIDs(t, cert)
 	if len(oids) != len(wantOIDs) {
 		t.Fatalf("expected %d subject attrs, got %d: %v", len(wantOIDs), len(oids), oids)

@@ -610,11 +610,23 @@ func parseDNAttributes(dn string) ([]dnAttribute, error) {
 }
 
 // asn1RDN mirrors the ASN.1 AttributeTypeAndValue / RDN / Name structures so
-// that we can marshal a subject whose attribute order matches the input DN
-// string exactly, instead of the fixed field order pkix.Name imposes on
-// encode. OpenSearch Security's nodes_dn matching compares the full RFC1779
-// subject string, so attribute order must be preserved to stay compatible
-// with certificates issued by the legacy Java Search Guard tlstool.
+// that we can marshal a subject whose attribute order is controlled
+// precisely, instead of the fixed field order pkix.Name imposes on encode.
+//
+// OpenSearch Security does not compare RFC2253 display strings directly: its
+// DefaultPrincipalExtractor takes the certificate's X500Principal string
+// (RFC2253, i.e. reverse-of-DER order), re-parses it with javax.naming's
+// LdapName (which un-reverses it back to DER/logical order), and then
+// reverses that list *again* before joining it into the "SSL Principal"
+// used for plugins.security.nodes_dn wildcard matching. Net effect: the
+// principal OpenSearch matches against nodes_dn equals the DN attributes in
+// DER encoding order, unreversed.
+//
+// The legacy Java Search Guard tlstool DER-encodes DC-first (opposite of the
+// CN-first order typically written in tlsconfig's dn: string), so that after
+// the extractor's reversal the resulting principal is CN-first and matches
+// CN-first nodes_dn wildcards. To stay compatible, we must therefore encode
+// the DER subject in the *reverse* of the input DN string's attribute order.
 type asn1AttributeTypeAndValue struct {
 	Type  asn1.ObjectIdentifier
 	Value string `asn1:"utf8"`
@@ -627,8 +639,11 @@ type asn1AttributeTypeAndValue struct {
 type asn1RDNSET []asn1AttributeTypeAndValue
 
 // buildOrderedRawSubject parses a DN string and ASN.1-encodes it as an X.501
-// Name (RDNSequence of single-valued RDNs) in the exact attribute order the
-// DN string specifies, for use as x509.Certificate.RawSubject.
+// Name (RDNSequence of single-valued RDNs) in the reverse of the DN string's
+// attribute order, for use as x509.Certificate.RawSubject. See the
+// asn1AttributeTypeAndValue doc comment for why the order must be reversed
+// to match the legacy Java Search Guard tlstool and OpenSearch Security's
+// nodes_dn principal matching.
 func buildOrderedRawSubject(dn string) ([]byte, error) {
 	attrs, err := parseDNAttributes(dn)
 	if err != nil {
@@ -637,7 +652,8 @@ func buildOrderedRawSubject(dn string) ([]byte, error) {
 
 	hasCN := false
 	rdnSequence := make([]asn1RDNSET, 0, len(attrs))
-	for _, attr := range attrs {
+	for i := len(attrs) - 1; i >= 0; i-- {
+		attr := attrs[i]
 		if attr.key == "CN" {
 			hasCN = true
 		}
