@@ -491,6 +491,9 @@ func TestGenerateNodeCertificateSubjectPreservesDNOrder(t *testing.T) {
 		t.Fatalf("failed to read node cert: %v", err)
 	}
 	block, _ := pem.Decode(certData)
+	if block == nil {
+		t.Fatal("failed to decode node cert PEM")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		t.Fatalf("failed to parse node cert: %v", err)
@@ -530,6 +533,9 @@ func TestGenerateClientCertificateSubjectPreservesDNOrder(t *testing.T) {
 		t.Fatalf("failed to read client cert: %v", err)
 	}
 	block, _ := pem.Decode(certData)
+	if block == nil {
+		t.Fatal("failed to decode client cert PEM")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		t.Fatalf("failed to parse client cert: %v", err)
@@ -563,6 +569,9 @@ func TestGenerateNodeCertificateSubjectOrderWithoutDC(t *testing.T) {
 		t.Fatalf("failed to read node cert: %v", err)
 	}
 	block, _ := pem.Decode(certData)
+	if block == nil {
+		t.Fatal("failed to decode node cert PEM")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		t.Fatalf("failed to parse node cert: %v", err)
@@ -602,6 +611,9 @@ func TestGenerateNodeCertificateSubjectOrderWithEscapedComma(t *testing.T) {
 		t.Fatalf("failed to read node cert: %v", err)
 	}
 	block, _ := pem.Decode(certData)
+	if block == nil {
+		t.Fatal("failed to decode node cert PEM")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		t.Fatalf("failed to parse node cert: %v", err)
